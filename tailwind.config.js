@@ -10,29 +10,33 @@ module.exports = {
     extend: {
       colors: {
         bg: {
-          primary: "#0A0A0F",
-          surface: "#141419",
-          elevated: "#1C1C24",
+          primary: "#0D1117",
+          surface: "#161B22",
+          elevated: "#21262D",
+          "gradient-top": "#0f172a",
+          "gradient-bottom": "#1c1917",
         },
-        accent: "#D4A574",
+        accent: "#C4A574",
+        "accent-soft": "#E8DCC8",
         text: {
-          primary: "#F5F5F7",
-          secondary: "#A0A0AB",
-          muted: "#6B6B78",
+          primary: "#F8FAFC",
+          secondary: "#94A3B8",
+          muted: "#64748B",
         },
         semantic: {
-          green: "#4ADE80",
-          amber: "#FBBF24",
-          red: "#F87171",
+          green: "#86EFAC",
+          amber: "#FCD34D",
+          red: "#FCA5A5",
         },
         glass: {
-          border: "rgba(255,255,255,0.08)",
-          fill: "rgba(255,255,255,0.04)",
+          border: "rgba(255,255,255,0.06)",
+          fill: "rgba(255,255,255,0.03)",
         },
       },
       borderRadius: {
-        card: "16px",
-        pill: "24px",
+        card: "20px",
+        pill: "28px",
+        "card-lg": "24px",
       },
       fontFamily: {
         sans: ["System"],

@@ -1,31 +1,38 @@
 export const theme = {
   colors: {
     bg: {
-      primary: "#0A0A0F",
-      surface: "#141419",
-      elevated: "#1C1C24",
+      primary: "#0D1117",
+      surface: "#161B22",
+      elevated: "#21262D",
+      gradient: {
+        top: "#0f172a",
+        middle: "#1e293b",
+        bottom: "#1c1917",
+      },
     },
-    accent: "#D4A574",
+    accent: "#C4A574",
+    accentSoft: "#E8DCC8",
     text: {
-      primary: "#F5F5F7",
-      secondary: "#A0A0AB",
-      muted: "#6B6B78",
+      primary: "#F8FAFC",
+      secondary: "#94A3B8",
+      muted: "#64748B",
     },
     semantic: {
-      green: "#4ADE80",
-      amber: "#FBBF24",
-      red: "#F87171",
+      green: "#86EFAC",
+      amber: "#FCD34D",
+      red: "#FCA5A5",
     },
     glass: {
-      border: "rgba(255,255,255,0.08)",
-      fill: "rgba(255,255,255,0.04)",
+      border: "rgba(255,255,255,0.06)",
+      fill: "rgba(255,255,255,0.03)",
     },
   },
   radius: {
-    card: 16,
-    pill: 24,
+    card: 20,
+    pill: 28,
+    full: 9999,
   },
   blur: {
-    intensity: 40,
+    intensity: 30,
   },
 } as const;

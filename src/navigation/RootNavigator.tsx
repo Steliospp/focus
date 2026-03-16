@@ -38,7 +38,7 @@ export function RootNavigator() {
     <Stack.Navigator
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: theme.colors.bg.primary },
+        contentStyle: { backgroundColor: theme.colors.bg.gradient.top },
         animation: "slide_from_right",
       }}
     >

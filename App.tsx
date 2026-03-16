@@ -1,25 +1,13 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { NavigationContainer } from "@react-navigation/native";
+import { RootNavigator } from "./src/navigation/RootNavigator";
 
 export default function App() {
   return (
-    <View style={styles.container}>
+    <NavigationContainer>
       <StatusBar style="light" />
-      <Text style={styles.text}>Focus App Loading...</Text>
-    </View>
+      <RootNavigator />
+    </NavigationContainer>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0A0A0F",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  text: {
-    color: "#F5F5F7",
-    fontSize: 20,
-  },
-});

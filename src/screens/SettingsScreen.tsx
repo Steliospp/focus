@@ -3,6 +3,7 @@ import { View, Text, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { GlassCard } from "../components/ui/GlassCard";
 import { SectionLabel } from "../components/ui/SectionLabel";
+import { SoftGradientBg } from "../components/ui/SoftGradientBg";
 
 interface SettingRowProps {
   label: string;
@@ -11,7 +12,7 @@ interface SettingRowProps {
 
 function SettingRow({ label, value }: SettingRowProps) {
   return (
-    <GlassCard className="p-4 flex-row items-center justify-between">
+    <GlassCard soft className="p-4 flex-row items-center justify-between">
       <Text className="text-text-primary text-sm">{label}</Text>
       <Text className="text-accent text-sm">{value}</Text>
     </GlassCard>
@@ -60,9 +61,10 @@ const SECTIONS = [
 
 export function SettingsScreen() {
   return (
-    <SafeAreaView className="flex-1 bg-bg-primary">
-      <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
-        <Text className="text-text-primary text-2xl font-bold mt-2 mb-6">Settings</Text>
+    <SoftGradientBg>
+      <SafeAreaView className="flex-1" edges={["top"]}>
+        <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
+          <Text className="text-text-primary text-3xl font-bold tracking-tight mt-1 mb-6">Settings</Text>
 
         {SECTIONS.map((section) => (
           <View key={section.label} className="mb-6">
@@ -74,8 +76,9 @@ export function SettingsScreen() {
             </View>
           </View>
         ))}
-        <View className="h-10" />
-      </ScrollView>
-    </SafeAreaView>
+          <View className="h-10" />
+        </ScrollView>
+      </SafeAreaView>
+    </SoftGradientBg>
   );
 }

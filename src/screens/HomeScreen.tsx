@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, ScrollView, TouchableOpacity, Image } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -7,6 +7,7 @@ import { GlassCard } from "../components/ui/GlassCard";
 import { StreakDots } from "../components/ui/StreakDots";
 import { SectionLabel } from "../components/ui/SectionLabel";
 import { SessionCard } from "../components/ui/SessionCard";
+import { SoftGradientBg } from "../components/ui/SoftGradientBg";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 
 const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -16,79 +17,81 @@ export function HomeScreen() {
   const today = new Date().getDay();
 
   return (
-    <SafeAreaView className="flex-1 bg-bg-primary">
-      <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View className="flex-row items-center justify-between mt-2 mb-6">
-          <View>
-            <Text className="text-text-primary text-2xl font-bold">
-              Good day, Stelios
-            </Text>
-            <View className="flex-row gap-3 mt-2">
-              {DAYS.map((d, i) => (
-                <Text
-                  key={i}
-                  className={`text-sm font-medium ${
-                    i === today ? "text-accent" : "text-text-muted"
-                  }`}
-                >
-                  {d}
-                </Text>
-              ))}
-            </View>
-          </View>
-          <View className="w-10 h-10 rounded-full bg-accent/20 items-center justify-center">
-            <Text className="text-accent text-base font-bold">S</Text>
-          </View>
-        </View>
-
-        {/* Streak Card */}
-        <GlassCard className="p-5 mb-4">
-          <View className="flex-row items-center justify-between">
+    <SoftGradientBg>
+      <SafeAreaView className="flex-1" edges={["top"]}>
+        <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
+          {/* Header */}
+          <View className="flex-row items-center justify-between mt-1 mb-6">
             <View>
-              <Text className="text-text-primary text-lg font-semibold">
-                6 day streak
+              <Text className="text-text-primary text-3xl font-bold tracking-tight">
+                Good day, Stelios
               </Text>
-              <Text className="text-text-muted text-sm mt-1">Keep it going!</Text>
+              <View className="flex-row gap-4 mt-3">
+                {DAYS.map((d, i) => (
+                  <Text
+                    key={i}
+                    className={`text-sm font-medium ${
+                      i === today ? "text-accent" : "text-text-muted"
+                    }`}
+                  >
+                    {d}
+                  </Text>
+                ))}
+              </View>
             </View>
-            <StreakDots filledUpTo={6} />
+            <View className="w-12 h-12 rounded-full bg-accent/20 items-center justify-center">
+              <Text className="text-accent text-lg font-bold">S</Text>
+            </View>
           </View>
-        </GlassCard>
 
-        {/* Task Input Card */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate("TaskInput")}
-          activeOpacity={0.7}
-        >
-          <View className="border-2 border-dashed border-white/10 rounded-card p-8 items-center mb-6">
-            <Text className="text-text-muted text-base">
-              What are you working on?
-            </Text>
+          {/* Streak Card - soft style */}
+          <GlassCard soft className="p-5 mb-5">
+            <View className="flex-row items-center justify-between">
+              <View>
+                <Text className="text-text-primary text-lg font-semibold">
+                  6 day streak
+                </Text>
+                <Text className="text-text-muted text-sm mt-1">Keep it going!</Text>
+              </View>
+              <StreakDots filledUpTo={6} />
+            </View>
+          </GlassCard>
+
+          {/* Task Input - reference style rounded CTA */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate("TaskInput")}
+            activeOpacity={0.8}
+            className="mb-6"
+          >
+            <View className="border-2 border-dashed border-white/10 rounded-card-lg py-8 items-center">
+              <Text className="text-text-muted text-base">
+                What are you working on?
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <SectionLabel label="Rolled over" className="mb-3" />
+
+          <View className="gap-3 mb-10">
+            <SessionCard
+              emoji="📝"
+              title="Research report"
+              subtitle="Yesterday · 2 subtasks left"
+              badge={{ label: "Partial", variant: "amber" }}
+              time="25m"
+              onPress={() => navigation.navigate("Breakdown")}
+            />
+            <SessionCard
+              emoji="🧹"
+              title="Clean desk"
+              subtitle="Yesterday · Not started"
+              badge={{ label: "Tiny", variant: "red" }}
+              time="5m"
+              onPress={() => navigation.navigate("TinyTask")}
+            />
           </View>
-        </TouchableOpacity>
-
-        {/* Rolled Over */}
-        <SectionLabel label="Rolled over" className="mb-3" />
-
-        <View className="gap-3 mb-8">
-          <SessionCard
-            emoji="📝"
-            title="Research report"
-            subtitle="Yesterday · 2 subtasks left"
-            badge={{ label: "Partial", variant: "amber" }}
-            time="25m"
-            onPress={() => navigation.navigate("Breakdown")}
-          />
-          <SessionCard
-            emoji="🧹"
-            title="Clean desk"
-            subtitle="Yesterday · Not started"
-            badge={{ label: "Tiny", variant: "red" }}
-            time="5m"
-            onPress={() => navigation.navigate("TinyTask")}
-          />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+        </ScrollView>
+      </SafeAreaView>
+    </SoftGradientBg>
   );
 }

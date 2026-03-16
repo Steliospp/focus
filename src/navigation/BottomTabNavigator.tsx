@@ -14,12 +14,12 @@ export function BottomTabNavigator() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: theme.colors.bg.primary,
-          borderTopColor: theme.colors.glass.border,
+          backgroundColor: theme.colors.bg.gradient.bottom,
+          borderTopColor: "rgba(255,255,255,0.06)",
           borderTopWidth: 1,
-          height: 85,
-          paddingBottom: 25,
-          paddingTop: 10,
+          height: 88,
+          paddingBottom: 28,
+          paddingTop: 12,
         },
         tabBarActiveTintColor: theme.colors.accent,
         tabBarInactiveTintColor: theme.colors.text.muted,

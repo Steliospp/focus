@@ -3,7 +3,9 @@ import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Ionicons } from "@expo/vector-icons";
 import { SessionCard } from "../components/ui/SessionCard";
+import { SoftGradientBg } from "../components/ui/SoftGradientBg";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 
 const FILTERS = ["All", "This week", "Projects", "Study"];
@@ -23,56 +25,73 @@ export function HistoryScreen() {
   const [activeFilter, setActiveFilter] = useState("All");
 
   return (
-    <SafeAreaView className="flex-1 bg-bg-primary">
-      <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
-        <View className="mt-2 mb-4">
-          <Text className="text-text-primary text-2xl font-bold">History</Text>
-          <Text className="text-text-muted text-sm">12 sessions this month</Text>
-        </View>
-
-        {/* Filter pills */}
-        <View className="flex-row gap-2 mb-6">
-          {FILTERS.map((f) => (
+    <SoftGradientBg>
+      <SafeAreaView className="flex-1" edges={["top"]}>
+        <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
+          {/* Header */}
+          <View className="flex-row items-start justify-between mt-1 mb-6">
+            <View>
+              <Text className="text-text-primary text-3xl font-bold tracking-tight">
+                History
+              </Text>
+              <Text className="text-text-muted text-base mt-1">
+                12 sessions this month
+              </Text>
+            </View>
             <TouchableOpacity
-              key={f}
-              onPress={() => setActiveFilter(f)}
-              className={`px-4 py-2 rounded-pill ${
-                f === activeFilter
-                  ? "bg-accent"
-                  : "bg-bg-elevated border border-white/8"
-              }`}
+              onPress={() => navigation.navigate("Settings")}
+              className="w-11 h-11 rounded-full bg-white/10 items-center justify-center"
+              activeOpacity={0.7}
             >
-              <Text
-                className={`text-sm font-medium ${
-                  f === activeFilter ? "text-bg-primary" : "text-text-secondary"
+              <Ionicons name="settings-outline" size={22} color="#94A3B8" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Filter pills - reference style: soft selected state */}
+          <View className="flex-row flex-wrap gap-3 mb-8">
+            {FILTERS.map((f) => (
+              <TouchableOpacity
+                key={f}
+                onPress={() => setActiveFilter(f)}
+                activeOpacity={0.8}
+                className={`px-5 py-3 rounded-card-lg ${
+                  f === activeFilter
+                    ? "bg-accent"
+                    : "bg-white/5"
                 }`}
               >
-                {f}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+                <Text
+                  className={`text-sm font-medium ${
+                    f === activeFilter ? "text-bg-primary" : "text-text-secondary"
+                  }`}
+                >
+                  {f}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-        {/* Today */}
-        <Text className="text-text-muted text-xs uppercase tracking-widest font-medium mb-3">
-          Today
-        </Text>
-        <View className="gap-3 mb-6">
-          {TODAY_SESSIONS.map((s) => (
-            <SessionCard key={s.title} {...s} />
-          ))}
-        </View>
+          {/* Today */}
+          <Text className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-4">
+            Today
+          </Text>
+          <View className="gap-3 mb-8">
+            {TODAY_SESSIONS.map((s) => (
+              <SessionCard key={s.title} {...s} />
+            ))}
+          </View>
 
-        {/* Yesterday */}
-        <Text className="text-text-muted text-xs uppercase tracking-widest font-medium mb-3">
-          Yesterday
-        </Text>
-        <View className="gap-3 mb-8">
-          {YESTERDAY_SESSIONS.map((s) => (
-            <SessionCard key={s.title} {...s} />
-          ))}
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+          {/* Yesterday */}
+          <Text className="text-text-muted text-xs uppercase tracking-widest font-semibold mb-4">
+            Yesterday
+          </Text>
+          <View className="gap-3 mb-10">
+            {YESTERDAY_SESSIONS.map((s) => (
+              <SessionCard key={s.title} {...s} />
+            ))}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </SoftGradientBg>
   );
 }

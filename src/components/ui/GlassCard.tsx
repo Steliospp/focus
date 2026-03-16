@@ -8,6 +8,8 @@ interface GlassCardProps {
   className?: string;
   style?: ViewStyle;
   intensity?: number;
+  /** Softer look: no blur, just subtle fill (reference-style cards) */
+  soft?: boolean;
 }
 
 export function GlassCard({
@@ -15,10 +17,21 @@ export function GlassCard({
   className,
   style,
   intensity = theme.blur.intensity,
+  soft = false,
 }: GlassCardProps) {
+  if (soft) {
+    return (
+      <View
+        className={`overflow-hidden rounded-card-lg bg-white/[0.06] border border-white/[0.06] ${className ?? ""}`}
+        style={style}
+      >
+        {children}
+      </View>
+    );
+  }
   return (
     <View
-      className={`overflow-hidden rounded-card ${className ?? ""}`}
+      className={`overflow-hidden rounded-card-lg ${className ?? ""}`}
       style={[styles.container, style]}
     >
       <BlurView intensity={intensity} tint="dark" style={StyleSheet.absoluteFill} />
