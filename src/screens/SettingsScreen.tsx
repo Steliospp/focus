@@ -1,9 +1,10 @@
 import React from "react";
-import { View, Text, ScrollView } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { GlassCard } from "../components/ui/GlassCard";
 import { SectionLabel } from "../components/ui/SectionLabel";
 import { SoftGradientBg } from "../components/ui/SoftGradientBg";
+import { useResetOnboarding } from "../context/OnboardingContext";
 
 interface SettingRowProps {
   label: string;
@@ -57,9 +58,15 @@ const SECTIONS = [
       { label: "Export data", value: "→" },
     ],
   },
+  {
+    label: "Debug",
+    rows: [{ label: "Show onboarding again", value: "→" }],
+  },
 ];
 
 export function SettingsScreen() {
+  const resetOnboarding = useResetOnboarding();
+
   return (
     <SoftGradientBg>
       <SafeAreaView className="flex-1" edges={["top"]}>
@@ -70,9 +77,18 @@ export function SettingsScreen() {
           <View key={section.label} className="mb-6">
             <SectionLabel label={section.label} className="mb-3" />
             <View className="gap-2">
-              {section.rows.map((row) => (
-                <SettingRow key={row.label} {...row} />
-              ))}
+              {section.rows.map((row) =>
+                row.label === "Show onboarding again" ? (
+                  <TouchableOpacity key={row.label} onPress={() => resetOnboarding()}>
+                    <GlassCard soft className="p-4 flex-row items-center justify-between">
+                      <Text className="text-text-primary text-sm">{row.label}</Text>
+                      <Text className="text-accent text-sm">{row.value}</Text>
+                    </GlassCard>
+                  </TouchableOpacity>
+                ) : (
+                  <SettingRow key={row.label} {...row} />
+                )
+              )}
             </View>
           </View>
         ))}

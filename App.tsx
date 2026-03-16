@@ -5,6 +5,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { RootNavigator } from "./src/navigation/RootNavigator";
 import { OnboardingNavigator } from "./src/navigation/OnboardingNavigator";
 import { useOnboardingComplete } from "./src/hooks/useOnboardingComplete";
+import { OnboardingProvider } from "./src/context/OnboardingContext";
 
 class ErrorBoundary extends Component<
   { children: React.ReactNode },
@@ -30,7 +31,7 @@ class ErrorBoundary extends Component<
 }
 
 export default function App() {
-  const { complete, markComplete } = useOnboardingComplete();
+  const { complete, markComplete, resetOnboarding } = useOnboardingComplete();
 
   if (complete === null) {
     return (
@@ -53,10 +54,12 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <NavigationContainer>
-        <StatusBar style="light" />
-        <RootNavigator />
-      </NavigationContainer>
+      <OnboardingProvider resetOnboarding={resetOnboarding}>
+        <NavigationContainer>
+          <StatusBar style="light" />
+          <RootNavigator />
+        </NavigationContainer>
+      </OnboardingProvider>
     </ErrorBoundary>
   );
 }

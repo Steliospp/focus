@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const KEY = "@focus_onboarding_complete";
+export const ONBOARDING_STORAGE_KEY = "@focus_onboarding_complete";
 
 export function useOnboardingComplete() {
   const [complete, setComplete] = useState<boolean | null>(null);
@@ -10,7 +10,7 @@ export function useOnboardingComplete() {
     let cancelled = false;
     (async () => {
       try {
-        const value = await AsyncStorage.getItem(KEY);
+        const value = await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY);
         if (!cancelled) setComplete(value === "true");
       } catch {
         if (!cancelled) setComplete(false);
@@ -21,10 +21,17 @@ export function useOnboardingComplete() {
 
   const markComplete = useCallback(async () => {
     try {
-      await AsyncStorage.setItem(KEY, "true");
+      await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
       setComplete(true);
     } catch {}
   }, []);
 
-  return { complete, markComplete };
+  const resetOnboarding = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
+      setComplete(false);
+    } catch {}
+  }, []);
+
+  return { complete, markComplete, resetOnboarding };
 }
