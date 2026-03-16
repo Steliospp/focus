@@ -25,9 +25,14 @@ export interface SessionSummary {
   durationMinutes: number;
   completedAt: string;
   verified?: boolean;
+  taskType?: string;
   subtasksDone?: number;
   subtasksTotal?: number;
   streak?: number;
+  beforeUri?: string | null;
+  afterUri?: string | null;
+  recallAnswer?: string | null;
+  frictionAnswers?: string[];
 }
 
 export interface ProjectData {

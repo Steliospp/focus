@@ -18,13 +18,14 @@ import {
 type Props = NativeStackScreenProps<RootStackParamList, "VerifyBeforeAfter">;
 
 export function VerifyBeforeAfterScreen({ route, navigation }: Props) {
-  const { task, beforeUri, earlyEnd, minutesEarly = 0 } = route.params;
+  const { task, beforeUri: paramBeforeUri, earlyEnd, minutesEarly = 0 } = route.params;
+  const [beforeUri, setBeforeUri] = useState<string | null>(paramBeforeUri ?? null);
   const [afterUri, setAfterUri] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [result, setResult] = useState<VerifyTransformationResult | null>(null);
   const [confidenceDisplay, setConfidenceDisplay] = useState(0);
 
-  const takeAfterPhoto = async () => {
+  const takePhoto = async (setUri: (u: string) => void) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") return;
     const pickerResult = await ImagePicker.launchCameraAsync({
@@ -32,9 +33,12 @@ export function VerifyBeforeAfterScreen({ route, navigation }: Props) {
       allowsEditing: false,
     });
     if (!pickerResult.canceled && pickerResult.assets[0]?.uri) {
-      setAfterUri(pickerResult.assets[0].uri);
+      setUri(pickerResult.assets[0].uri);
     }
   };
+
+  const takeBeforePhoto = () => takePhoto(setBeforeUri);
+  const takeAfterPhoto = () => takePhoto(setAfterUri);
 
   useEffect(() => {
     if (!afterUri || !beforeUri) return;
@@ -66,6 +70,11 @@ export function VerifyBeforeAfterScreen({ route, navigation }: Props) {
       durationMinutes: task.estimatedMinutes,
       completedAt: new Date().toISOString(),
       verified: true,
+      taskType: task.taskType,
+      subtasksTotal: task.subtasks?.length,
+      subtasksDone: task.subtasks?.length,
+      beforeUri,
+      afterUri,
     };
     navigation.replace("SessionComplete", { sessionSummary });
   };
@@ -97,8 +106,8 @@ export function VerifyBeforeAfterScreen({ route, navigation }: Props) {
           Now show how it looks
         </Text>
 
-        {/* Before thumbnail */}
-        {beforeUri && (
+        {/* Before: thumbnail or camera */}
+        {beforeUri ? (
           <View className="mb-4">
             <Text className="text-text-muted text-xs uppercase tracking-wider mb-2">
               Before
@@ -109,6 +118,16 @@ export function VerifyBeforeAfterScreen({ route, navigation }: Props) {
               resizeMode="cover"
             />
           </View>
+        ) : (
+          <TouchableOpacity
+            onPress={takeBeforePhoto}
+            className="w-full aspect-[4/3] bg-bg-elevated rounded-card items-center justify-center border border-white/8 mb-4"
+          >
+            <View className="bg-accent/10 rounded-full w-16 h-16 items-center justify-center mb-2">
+              <Ionicons name="camera" size={28} color={theme.colors.accent} />
+            </View>
+            <Text className="text-text-secondary text-sm">Tap to add BEFORE photo</Text>
+          </TouchableOpacity>
         )}
 
         {/* After: camera button or image */}
