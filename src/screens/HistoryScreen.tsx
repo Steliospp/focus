@@ -34,9 +34,11 @@ export function HistoryScreen() {
               <Text className="text-text-primary text-3xl font-bold tracking-tight">
                 History
               </Text>
-              <Text className="text-text-muted text-base mt-1">
-                12 sessions this month
-              </Text>
+              <TouchableOpacity onPress={() => navigation.navigate("WeeklyInsights")}>
+                <Text className="text-text-muted text-base mt-1">
+                  12 sessions this month
+                </Text>
+              </TouchableOpacity>
             </View>
             <TouchableOpacity
               onPress={() => navigation.navigate("Settings")}

@@ -1,28 +1,39 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { GlassCard } from "../components/ui/GlassCard";
 import { TagBadge } from "../components/ui/TagBadge";
 import { SectionLabel } from "../components/ui/SectionLabel";
 import { PrimaryButton } from "../components/ui/PrimaryButton";
 import { theme } from "../theme";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 
-const SUBTASKS = [
-  { num: "01", text: "Gather sources and references", time: "5m" },
-  { num: "02", text: "Create outline structure", time: "5m" },
-  { num: "03", text: "Write first draft of key sections", time: "10m" },
-  { num: "04", text: "Review and polish", time: "5m" },
-];
+type Props = NativeStackScreenProps<RootStackParamList, "Breakdown">;
 
 const DURATIONS = [15, 25, 45];
 
-export function BreakdownScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const [selectedDuration, setSelectedDuration] = useState(25);
+export function BreakdownScreen({ route, navigation }: Props) {
+  const { task } = route.params;
+  const [selectedDuration, setSelectedDuration] = useState(task.suggestedDuration ?? 25);
+  const [beforePhotoUri, setBeforePhotoUri] = useState<string | null>(null);
+
+  const takeBeforePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Camera access is needed to take a before photo.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      allowsEditing: false,
+    });
+    if (!result.canceled && result.assets[0]?.uri) {
+      setBeforePhotoUri(result.assets[0].uri);
+    }
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary">
@@ -33,24 +44,24 @@ export function BreakdownScreen() {
 
         {/* Header */}
         <View className="flex-row items-center gap-3 mb-1">
-          <Text className="text-text-primary text-2xl font-bold">Research report</Text>
+          <Text className="text-text-primary text-2xl font-bold">{task.taskTitle}</Text>
         </View>
         <View className="flex-row items-center gap-2 mb-6">
-          <TagBadge label="Study mode" variant="accent" />
-          <Text className="text-text-muted text-sm">~25 min total</Text>
+          <TagBadge label={task.taskType === "transformation" ? "Transformation" : "Study mode"} variant="accent" />
+          <Text className="text-text-muted text-sm">~{task.estimatedMinutes} min total</Text>
         </View>
 
         {/* Subtasks */}
         <SectionLabel label="Subtasks" className="mb-3" />
         <View className="gap-3 mb-6">
-          {SUBTASKS.map((st) => (
-            <GlassCard key={st.num} className="p-4">
+          {(task.subtasks ?? []).map((st, idx) => (
+            <GlassCard key={idx} className="p-4">
               <View className="flex-row items-center">
                 <Text className="text-accent text-sm font-bold mr-3 w-6">
-                  {st.num}
+                  {(idx + 1).toString().padStart(2, "0")}
                 </Text>
                 <Text className="text-text-primary text-sm flex-1">{st.text}</Text>
-                <Text className="text-text-muted text-xs">{st.time}</Text>
+                <Text className="text-text-muted text-xs">{st.minutes}m</Text>
               </View>
             </GlassCard>
           ))}
@@ -79,6 +90,26 @@ export function BreakdownScreen() {
           ))}
         </View>
 
+        {/* Take before photo */}
+        {task.requiresBeforePhoto && (
+          <GlassCard className="p-4 mb-4">
+            <Text className="text-text-primary text-sm font-medium mb-3">Take before photo</Text>
+            <TouchableOpacity
+              onPress={takeBeforePhoto}
+              className="flex-row items-center justify-center py-4 border border-dashed border-white/20 rounded-lg"
+            >
+              <Ionicons
+                name="camera"
+                size={28}
+                color={beforePhotoUri ? theme.colors.accent : theme.colors.text.muted}
+              />
+              {beforePhotoUri && (
+                <Text className="text-accent text-sm ml-2">Photo taken</Text>
+              )}
+            </TouchableOpacity>
+          </GlassCard>
+        )}
+
         {/* Sound card */}
         <GlassCard className="p-4 flex-row items-center mb-8">
           <Ionicons name="rainy" size={24} color={theme.colors.accent} />
@@ -91,7 +122,16 @@ export function BreakdownScreen() {
 
         <PrimaryButton
           title="Start session →"
-          onPress={() => navigation.navigate("ActiveSession")}
+          onPress={() =>
+            task.isTiny
+              ? navigation.navigate("TinyTask", { task })
+              : navigation.navigate("ActiveSession", {
+                  task,
+                  durationMinutes: selectedDuration,
+                  beforePhotoUri: beforePhotoUri ?? undefined,
+                  sound: undefined,
+                })
+          }
         />
         <View className="h-10" />
       </ScrollView>

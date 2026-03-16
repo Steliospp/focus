@@ -1,8 +1,7 @@
 import React from "react";
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { GlassCard } from "../components/ui/GlassCard";
 import { ProgressBar } from "../components/ui/ProgressBar";
@@ -12,8 +11,10 @@ import { PrimaryButton } from "../components/ui/PrimaryButton";
 import { theme } from "../theme";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 
-export function ProjectTrackerScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+type Props = NativeStackScreenProps<RootStackParamList, "ProjectTracker">;
+
+export function ProjectTrackerScreen({ route, navigation }: Props) {
+  const { project } = route.params;
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary">
@@ -22,8 +23,8 @@ export function ProjectTrackerScreen() {
           <Ionicons name="chevron-back" size={24} color={theme.colors.text.primary} />
         </TouchableOpacity>
 
-        <Text className="text-text-primary text-2xl font-bold">Research paper</Text>
-        <Text className="text-text-muted text-sm mb-6">Due March 30</Text>
+        <Text className="text-text-primary text-2xl font-bold">{project.projectName}</Text>
+        <Text className="text-text-muted text-sm mb-6">{project.deadline ? `Due ${project.deadline}` : ""}</Text>
 
         {/* Pace card */}
         <GlassCard className="p-5 mb-4">

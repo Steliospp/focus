@@ -1,6 +1,5 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { theme } from "../../theme";
 
 interface SoftGradientBgProps {
@@ -11,14 +10,7 @@ interface SoftGradientBgProps {
 export function SoftGradientBg({ children, className }: SoftGradientBgProps) {
   return (
     <View className={`flex-1 ${className ?? ""}`} style={styles.wrapper}>
-      <LinearGradient
-        colors={[
-          theme.colors.bg.gradient.top,
-          theme.colors.bg.gradient.middle,
-          theme.colors.bg.gradient.bottom,
-        ]}
-        style={StyleSheet.absoluteFill}
-      />
+      <View style={[styles.gradient, { backgroundColor: "#0a0908" }]} />
       <View style={styles.content}>{children}</View>
     </View>
   );
@@ -26,5 +18,6 @@ export function SoftGradientBg({ children, className }: SoftGradientBgProps) {
 
 const styles = StyleSheet.create({
   wrapper: { flex: 1 },
+  gradient: StyleSheet.absoluteFillObject,
   content: { flex: 1 },
 });

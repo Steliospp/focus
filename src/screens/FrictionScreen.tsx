@@ -1,13 +1,14 @@
 import React, { useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { TagBadge } from "../components/ui/TagBadge";
 import { ProgressBar } from "../components/ui/ProgressBar";
 import { AnswerButton } from "../components/ui/AnswerButton";
 import { PrimaryButton } from "../components/ui/PrimaryButton";
 import type { RootStackParamList } from "../navigation/RootNavigator";
+
+type Props = NativeStackScreenProps<RootStackParamList, "Friction">;
 
 const ANSWERS = [
   "I finished what I needed to do",
@@ -16,8 +17,8 @@ const ANSWERS = [
   "I need a break first",
 ];
 
-export function FrictionScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+export function FrictionScreen({ route, navigation }: Props) {
+  const { task, earlyEnd, minutesEarly } = route.params;
   const [selected, setSelected] = useState(1);
 
   return (
@@ -34,7 +35,7 @@ export function FrictionScreen() {
           Why did you end your session early?
         </Text>
         <Text className="text-text-muted text-sm mb-4">
-          Research report · 25 min session
+          {task.taskTitle} · {task.estimatedMinutes} min session
         </Text>
 
         <ProgressBar fillPercent={50} color="amber" className="mb-8" />
@@ -57,7 +58,16 @@ export function FrictionScreen() {
         <PrimaryButton
           title="Next question →"
           variant="surface"
-          onPress={() => navigation.navigate("SessionComplete")}
+          onPress={() =>
+            navigation.navigate("SessionComplete", {
+              sessionSummary: {
+                taskTitle: task.taskTitle,
+                durationMinutes: task.estimatedMinutes,
+                completedAt: new Date().toISOString(),
+                verified: false,
+              },
+            })
+          }
         />
         <View className="h-10" />
       </ScrollView>

@@ -79,7 +79,26 @@ export function HomeScreen() {
               subtitle="Yesterday · 2 subtasks left"
               badge={{ label: "Partial", variant: "amber" }}
               time="25m"
-              onPress={() => navigation.navigate("Breakdown")}
+              onPress={() =>
+                navigation.navigate("Breakdown", {
+                  task: {
+                    taskTitle: "Research report",
+                    taskType: "transformation",
+                    estimatedMinutes: 25,
+                    isTiny: false,
+                    isProject: false,
+                    subtasks: [
+                      { text: "Gather sources and references", minutes: 5 },
+                      { text: "Create outline structure", minutes: 5 },
+                      { text: "Write first draft of key sections", minutes: 10 },
+                      { text: "Review and polish", minutes: 5 },
+                    ],
+                    suggestedDuration: 25,
+                    requiresBeforePhoto: true,
+                    subject: null,
+                  },
+                })
+              }
             />
             <SessionCard
               emoji="🧹"
@@ -87,7 +106,20 @@ export function HomeScreen() {
               subtitle="Yesterday · Not started"
               badge={{ label: "Tiny", variant: "red" }}
               time="5m"
-              onPress={() => navigation.navigate("TinyTask")}
+              onPress={() =>
+                navigation.navigate("TinyTask", {
+                  task: {
+                    taskTitle: "Clean desk",
+                    estimatedMinutes: 5,
+                    isTiny: true,
+                    isProject: false,
+                    subtasks: [],
+                    suggestedDuration: 5,
+                    requiresBeforePhoto: false,
+                    subject: null,
+                  },
+                })
+              }
             />
           </View>
         </ScrollView>

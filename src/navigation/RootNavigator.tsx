@@ -14,20 +14,21 @@ import { ProjectSetupScreen } from "../screens/ProjectSetupScreen";
 import { ProjectTrackerScreen } from "../screens/ProjectTrackerScreen";
 import { WeeklyInsightsScreen } from "../screens/WeeklyInsightsScreen";
 import { theme } from "../theme";
+import type { TaskData, SessionSummary, ProjectData } from "./types";
 
 export type RootStackParamList = {
   Tabs: undefined;
-  TaskInput: undefined;
-  Breakdown: undefined;
-  ActiveSession: undefined;
-  VerifyScreenshot: undefined;
-  VerifyBeforeAfter: undefined;
-  Friction: undefined;
-  SessionComplete: undefined;
-  TinyTask: undefined;
-  StudyRecall: undefined;
+  TaskInput: { initialTask?: string } | undefined;
+  Breakdown: { task: TaskData };
+  ActiveSession: { task: TaskData; durationMinutes: number; beforePhotoUri?: string; sound?: string };
+  VerifyScreenshot: { task: TaskData; sessionSummary?: Partial<SessionSummary>; earlyEnd?: boolean; minutesEarly?: number };
+  VerifyBeforeAfter: { task: TaskData; beforeUri?: string; afterUri?: string; sessionSummary?: Partial<SessionSummary>; earlyEnd?: boolean; minutesEarly?: number };
+  Friction: { task: TaskData; earlyEnd: boolean; minutesEarly: number };
+  SessionComplete: { sessionSummary: SessionSummary };
+  TinyTask: { task: TaskData };
+  StudyRecall: { task: TaskData; subject?: string | null };
   ProjectSetup: undefined;
-  ProjectTracker: undefined;
+  ProjectTracker: { project: ProjectData };
   WeeklyInsights: undefined;
 };
 

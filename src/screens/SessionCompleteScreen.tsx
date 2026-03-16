@@ -1,15 +1,16 @@
 import React from "react";
 import { View, Text, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { GlassCard } from "../components/ui/GlassCard";
 import { StatBox } from "../components/ui/StatBox";
 import { PrimaryButton } from "../components/ui/PrimaryButton";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 
-export function SessionCompleteScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+type Props = NativeStackScreenProps<RootStackParamList, "SessionComplete">;
+
+export function SessionCompleteScreen({ route, navigation }: Props) {
+  const { sessionSummary } = route.params;
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary">
@@ -29,14 +30,14 @@ export function SessionCompleteScreen() {
 
         <Text className="text-text-primary text-2xl font-bold mb-1">Session logged</Text>
         <Text className="text-text-muted text-sm mb-8">
-          Research report · 25 min
+          {sessionSummary.taskTitle} · {sessionSummary.durationMinutes} min
         </Text>
 
         {/* Stats row */}
         <View className="flex-row gap-3 mb-6 w-full">
-          <StatBox value="25m" label="Focused" color="accent" />
-          <StatBox value="4/4" label="Subtasks" color="green" />
-          <StatBox value="7" label="Streak" color="amber" />
+          <StatBox value={`${sessionSummary.durationMinutes}m`} label="Focused" color="accent" />
+          <StatBox value={sessionSummary.subtasksTotal != null ? `${sessionSummary.subtasksDone ?? 0}/${sessionSummary.subtasksTotal}` : "—"} label="Subtasks" color="green" />
+          <StatBox value={String(sessionSummary.streak ?? 0)} label="Streak" color="amber" />
         </View>
 
         {/* Before/After strip */}

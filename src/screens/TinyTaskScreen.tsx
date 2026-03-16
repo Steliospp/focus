@@ -1,14 +1,15 @@
 import React from "react";
 import { View, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { GlassCard } from "../components/ui/GlassCard";
 import { PrimaryButton } from "../components/ui/PrimaryButton";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 
-export function TinyTaskScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+type Props = NativeStackScreenProps<RootStackParamList, "TinyTask">;
+
+export function TinyTaskScreen({ route, navigation }: Props) {
+  const { task } = route.params;
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary">
@@ -20,8 +21,8 @@ export function TinyTaskScreen() {
           className="p-5 mb-8 w-full"
           style={{ borderLeftWidth: 3, borderLeftColor: "#FBBF24" }}
         >
-          <Text className="text-text-primary text-base font-medium">Clean desk</Text>
-          <Text className="text-text-muted text-sm mt-1">~5 minutes</Text>
+          <Text className="text-text-primary text-base font-medium">{task.taskTitle}</Text>
+          <Text className="text-text-muted text-sm mt-1">~{task.estimatedMinutes} minutes</Text>
         </GlassCard>
 
         {/* Emoji with glow */}
@@ -43,7 +44,16 @@ export function TinyTaskScreen() {
             title="Yes ✓"
             variant="green"
             className="flex-1"
-            onPress={() => navigation.navigate("SessionComplete")}
+            onPress={() =>
+              navigation.navigate("SessionComplete", {
+                sessionSummary: {
+                  taskTitle: task.taskTitle,
+                  durationMinutes: task.estimatedMinutes,
+                  completedAt: new Date().toISOString(),
+                  verified: true,
+                },
+              })
+            }
           />
           <PrimaryButton
             title="Not yet"

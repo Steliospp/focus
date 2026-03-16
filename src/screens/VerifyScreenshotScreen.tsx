@@ -1,8 +1,7 @@
 import React from "react";
 import { View, Text, ScrollView, TextInput, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { GlassCard } from "../components/ui/GlassCard";
 import { ProgressBar } from "../components/ui/ProgressBar";
@@ -10,8 +9,10 @@ import { PrimaryButton } from "../components/ui/PrimaryButton";
 import { theme } from "../theme";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 
-export function VerifyScreenshotScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+type Props = NativeStackScreenProps<RootStackParamList, "VerifyScreenshot">;
+
+export function VerifyScreenshotScreen({ route, navigation }: Props) {
+  const { task } = route.params;
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary">
@@ -81,7 +82,18 @@ export function VerifyScreenshotScreen() {
         <PrimaryButton
           title="Looks good — log it ✓"
           variant="green"
-          onPress={() => navigation.navigate("SessionComplete")}
+          onPress={() =>
+            task.subject
+              ? navigation.navigate("StudyRecall", { task, subject: task.subject })
+              : navigation.navigate("SessionComplete", {
+                  sessionSummary: {
+                    taskTitle: task.taskTitle,
+                    durationMinutes: task.estimatedMinutes,
+                    completedAt: new Date().toISOString(),
+                    verified: true,
+                  },
+                })
+          }
         />
         <View className="h-10" />
       </ScrollView>

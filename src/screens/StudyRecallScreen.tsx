@@ -1,16 +1,17 @@
 import React from "react";
 import { View, Text, ScrollView, TextInput, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { GlassCard } from "../components/ui/GlassCard";
 import { PrimaryButton } from "../components/ui/PrimaryButton";
 import { theme } from "../theme";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 
-export function StudyRecallScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+type Props = NativeStackScreenProps<RootStackParamList, "StudyRecall">;
+
+export function StudyRecallScreen({ route, navigation }: Props) {
+  const { task, subject } = route.params;
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary">
@@ -22,7 +23,7 @@ export function StudyRecallScreen() {
         <Text className="text-text-primary text-2xl font-bold mb-1">
           Study recall check
         </Text>
-        <Text className="text-text-muted text-sm mb-6">Biology chapter 4</Text>
+        <Text className="text-text-muted text-sm mb-6">{subject ?? task.taskTitle}</Text>
 
         {/* Screenshot card */}
         <GlassCard className="p-5 items-center mb-4">
@@ -61,7 +62,16 @@ export function StudyRecallScreen() {
 
         <PrimaryButton
           title="Log session →"
-          onPress={() => navigation.navigate("SessionComplete")}
+          onPress={() =>
+            navigation.navigate("SessionComplete", {
+              sessionSummary: {
+                taskTitle: task.taskTitle,
+                durationMinutes: task.estimatedMinutes,
+                completedAt: new Date().toISOString(),
+                verified: true,
+              },
+            })
+          }
         />
         <View className="h-10" />
       </ScrollView>

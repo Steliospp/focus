@@ -1,8 +1,7 @@
 import React from "react";
 import { View, Text, ScrollView, TextInput, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { GlassCard } from "../components/ui/GlassCard";
 import { SectionLabel } from "../components/ui/SectionLabel";
@@ -10,6 +9,8 @@ import { PhaseRow } from "../components/ui/PhaseRow";
 import { PrimaryButton } from "../components/ui/PrimaryButton";
 import { theme } from "../theme";
 import type { RootStackParamList } from "../navigation/RootNavigator";
+
+type Props = NativeStackScreenProps<RootStackParamList, "ProjectSetup">;
 
 const PHASES = [
   { icon: "search" as const, name: "Research", sessions: "3 sessions", color: "#4ADE80" },
@@ -19,8 +20,7 @@ const PHASES = [
   { icon: "checkmark-done" as const, name: "Final review", sessions: "2 sessions", color: "#FBBF24" },
 ];
 
-export function ProjectSetupScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+export function ProjectSetupScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView className="flex-1 bg-bg-primary">
@@ -76,7 +76,17 @@ export function ProjectSetupScreen() {
 
         <PrimaryButton
           title="Create project →"
-          onPress={() => navigation.navigate("ProjectTracker")}
+          onPress={() =>
+            navigation.navigate("ProjectTracker", {
+              project: {
+                projectId: "proj-1",
+                projectName: "Research paper",
+                deadline: "March 30",
+                estimatedHours: 15,
+                phases: PHASES.map((p) => ({ name: p.name, sessions: p.sessions, color: p.color })),
+              },
+            })
+          }
         />
         <View className="h-10" />
       </ScrollView>
