@@ -1,7 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { GlassCard } from "../components/ui/GlassCard";
 import { StreakDots } from "../components/ui/StreakDots";
@@ -9,12 +9,59 @@ import { SectionLabel } from "../components/ui/SectionLabel";
 import { SessionCard } from "../components/ui/SessionCard";
 import { SoftGradientBg } from "../components/ui/SoftGradientBg";
 import type { RootStackParamList } from "../navigation/RootNavigator";
+import type { TaskData } from "../navigation/types";
+import { getAllSessions, calculateStreak, getBacklogTasks, type Session, type BacklogTask } from "../services/storage";
 
 const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
+
+function sessionToRolledOverTask(s: Session): TaskData {
+  const isTiny = s.taskType === "tiny" || (s.durationMinutes <= 10);
+  return {
+    taskTitle: s.taskTitle,
+    taskType: s.taskType ?? "transformation",
+    estimatedMinutes: s.durationMinutes,
+    isTiny,
+    isProject: s.taskType === "project",
+    subtasks: [],
+    suggestedDuration: s.durationMinutes,
+    requiresBeforePhoto: false,
+    subject: null,
+  };
+}
+
+function taskEmoji(taskType?: string): string {
+  if (taskType === "study") return "📚";
+  if (taskType === "tiny") return "🧹";
+  return "📝";
+}
 
 export function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const today = new Date().getDay();
+  const [streak, setStreak] = useState(0);
+  const [rolledOver, setRolledOver] = useState<Session[]>([]);
+  const [backlog, setBacklog] = useState<BacklogTask[]>([]);
+
+  const load = () => {
+    getAllSessions().then((sessions) => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().slice(0, 10);
+      const fromYesterday = sessions.filter(
+        (s) => s.completedAt && s.completedAt.slice(0, 10) === yesterdayStr
+      );
+      const partialOrNotStarted = fromYesterday.filter((s) => s.verified === false);
+      setRolledOver(partialOrNotStarted);
+    });
+    getBacklogTasks().then(setBacklog);
+    calculateStreak().then(setStreak);
+  };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      load();
+    }, [])
+  );
 
   return (
     <SoftGradientBg>
@@ -49,11 +96,13 @@ export function HomeScreen() {
             <View className="flex-row items-center justify-between">
               <View>
                 <Text className="text-text-primary text-lg font-semibold">
-                  6 day streak
+                  {streak === 0 ? "No streak yet" : `${streak} day streak`}
                 </Text>
-                <Text className="text-text-muted text-sm mt-1">Keep it going!</Text>
+                <Text className="text-text-muted text-sm mt-1">
+                  {streak > 0 ? "Keep it going!" : "Complete a session today"}
+                </Text>
               </View>
-              <StreakDots filledUpTo={6} />
+              <StreakDots filledUpTo={Math.min(streak, 7)} total={7} />
             </View>
           </GlassCard>
 
@@ -73,55 +122,52 @@ export function HomeScreen() {
           <SectionLabel label="Rolled over" className="mb-3" />
 
           <View className="gap-3 mb-10">
-            <SessionCard
-              emoji="📝"
-              title="Research report"
-              subtitle="Yesterday · 2 subtasks left"
-              badge={{ label: "Partial", variant: "amber" }}
-              time="25m"
-              onPress={() =>
-                navigation.navigate("Breakdown", {
-                  task: {
-                    taskTitle: "Research report",
-                    taskType: "transformation",
-                    estimatedMinutes: 25,
-                    isTiny: false,
-                    isProject: false,
-                    subtasks: [
-                      { text: "Gather sources and references", minutes: 5 },
-                      { text: "Create outline structure", minutes: 5 },
-                      { text: "Write first draft of key sections", minutes: 10 },
-                      { text: "Review and polish", minutes: 5 },
-                    ],
-                    suggestedDuration: 25,
-                    requiresBeforePhoto: true,
-                    subject: null,
-                  },
-                })
-              }
-            />
-            <SessionCard
-              emoji="🧹"
-              title="Clean desk"
-              subtitle="Yesterday · Not started"
-              badge={{ label: "Tiny", variant: "red" }}
-              time="5m"
-              onPress={() =>
-                navigation.navigate("TinyTask", {
-                  task: {
-                    taskTitle: "Clean desk",
-                    estimatedMinutes: 5,
-                    isTiny: true,
-                    isProject: false,
-                    subtasks: [],
-                    suggestedDuration: 5,
-                    requiresBeforePhoto: false,
-                    subject: null,
-                  },
-                })
-              }
-            />
+            {rolledOver.map((s) => {
+              const task = sessionToRolledOverTask(s);
+              const isTiny = task.isTiny;
+              return (
+                <SessionCard
+                  key={s.id}
+                  emoji={taskEmoji(s.taskType)}
+                  title={s.taskTitle}
+                  subtitle={`Yesterday · ${s.verified === false ? "Partial" : "Not started"}`}
+                  badge={
+                    isTiny
+                      ? { label: "Tiny", variant: "red" }
+                      : { label: "Partial", variant: "amber" }
+                  }
+                  time={`${s.durationMinutes}m`}
+                  onPress={() =>
+                    isTiny
+                      ? navigation.navigate("TinyTask", { task })
+                      : navigation.navigate("Breakdown", { task })
+                  }
+                />
+              );
+            })}
           </View>
+
+          {backlog.length > 0 && (
+            <>
+              <SectionLabel label="Saved for later" className="mb-3" />
+              <View className="gap-3 mb-10">
+                {backlog.map((t) => (
+                  <SessionCard
+                    key={t.id}
+                    emoji="📝"
+                    title={t.text}
+                    subtitle="Backlog"
+                    time={undefined}
+                    onPress={() =>
+                      navigation.navigate("TaskInput", {
+                        initialTask: t.text,
+                      })
+                    }
+                  />
+                ))}
+              </View>
+            </>
+          )}
         </ScrollView>
       </SafeAreaView>
     </SoftGradientBg>

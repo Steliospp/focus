@@ -10,6 +10,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import type { TaskData } from "../navigation/types";
 import { classifyTask } from "../services/ai";
+import { saveBacklogTask } from "../services/storage";
 
 type Props = NativeStackScreenProps<RootStackParamList, "TaskInput">;
 
@@ -57,6 +58,18 @@ export function TaskInputScreen({ route, navigation }: Props) {
     } finally {
       setIsClassifying(false);
     }
+  };
+
+  const handleSaveForLater = async () => {
+    const text = task.trim();
+    if (!text) return;
+    const now = new Date().toISOString();
+    await saveBacklogTask({
+      id: now,
+      text,
+      createdAt: now,
+    });
+    navigation.goBack();
   };
 
   return (
@@ -116,6 +129,13 @@ export function TaskInputScreen({ route, navigation }: Props) {
         <PrimaryButton
           title="Analyse task →"
           onPress={handleSubmit}
+          disabled={isClassifying}
+        />
+        <View className="h-3" />
+        <PrimaryButton
+          title="Save to list"
+          variant="outline"
+          onPress={handleSaveForLater}
           disabled={isClassifying}
         />
         <View className="h-10" />

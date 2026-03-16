@@ -79,6 +79,17 @@ export function VerifyBeforeAfterScreen({ route, navigation }: Props) {
     navigation.replace("SessionComplete", { sessionSummary });
   };
 
+  const goSkipWithoutPhotos = () => {
+    const sessionSummary: SessionSummary = {
+      taskTitle: task.taskTitle,
+      durationMinutes: task.estimatedMinutes,
+      completedAt: new Date().toISOString(),
+      verified: false,
+      taskType: task.taskType,
+    };
+    navigation.replace("SessionComplete", { sessionSummary });
+  };
+
   const goFriction = () => {
     navigation.navigate("Friction", {
       task,
@@ -217,6 +228,12 @@ export function VerifyBeforeAfterScreen({ route, navigation }: Props) {
           <PrimaryButton
             title="Almost there..."
             onPress={goFriction}
+          />
+        )}
+        {!isChecking && (
+          <PrimaryButton
+            title="Skip for now"
+            onPress={goSkipWithoutPhotos}
           />
         )}
         <View className="h-10" />

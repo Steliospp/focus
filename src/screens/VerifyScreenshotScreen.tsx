@@ -95,6 +95,17 @@ export function VerifyScreenshotScreen({ route, navigation }: Props) {
     navigation.replace("SessionComplete", { sessionSummary });
   };
 
+  const goSkipWithoutVerification = () => {
+    const sessionSummary: SessionSummary = {
+      taskTitle: task.taskTitle,
+      durationMinutes: task.estimatedMinutes,
+      completedAt: new Date().toISOString(),
+      verified: false,
+      taskType,
+    };
+    navigation.replace("SessionComplete", { sessionSummary });
+  };
+
   const goFriction = () => {
     navigation.navigate("Friction", {
       task,
@@ -245,6 +256,12 @@ export function VerifyScreenshotScreen({ route, navigation }: Props) {
         )}
         {showAlmostThere && (
           <PrimaryButton title="Almost there..." onPress={goFriction} />
+        )}
+        {!isChecking && (
+          <PrimaryButton
+            title="Skip for now"
+            onPress={goSkipWithoutVerification}
+          />
         )}
         <View className="h-10" />
       </ScrollView>

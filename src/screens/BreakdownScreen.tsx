@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Alert } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, Alert, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,6 +19,12 @@ export function BreakdownScreen({ route, navigation }: Props) {
   const { task } = route.params;
   const [selectedDuration, setSelectedDuration] = useState(task.suggestedDuration ?? 25);
   const [beforePhotoUri, setBeforePhotoUri] = useState<string | null>(null);
+  const [useSubtasks, setUseSubtasks] = useState((task.subtasks ?? []).length > 0);
+  const [subtasks, setSubtasks] = useState(
+    (task.subtasks ?? []).map((st) => ({ ...st }))
+  );
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState("");
 
   const takeBeforePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -52,20 +58,54 @@ export function BreakdownScreen({ route, navigation }: Props) {
         </View>
 
         {/* Subtasks */}
-        <SectionLabel label="Subtasks" className="mb-3" />
-        <View className="gap-3 mb-6">
-          {(task.subtasks ?? []).map((st, idx) => (
-            <GlassCard key={idx} className="p-4">
-              <View className="flex-row items-center">
-                <Text className="text-accent text-sm font-bold mr-3 w-6">
-                  {(idx + 1).toString().padStart(2, "0")}
-                </Text>
-                <Text className="text-text-primary text-sm flex-1">{st.text}</Text>
-                <Text className="text-text-muted text-xs">{st.minutes}m</Text>
-              </View>
-            </GlassCard>
-          ))}
+        <View className="flex-row items-center justify-between mb-3">
+          <SectionLabel label="Subtasks" />
+          <TouchableOpacity onPress={() => setUseSubtasks((v) => !v)}>
+            <Text className="text-text-muted text-xs">
+              {useSubtasks ? "Use single block" : "Break into subtasks"}
+            </Text>
+          </TouchableOpacity>
         </View>
+        {useSubtasks && (
+          <View className="gap-3 mb-6">
+            {subtasks.map((st, idx) => (
+              <GlassCard key={idx} className="p-4">
+                <View className="flex-row items-center">
+                  <Text className="text-accent text-sm font-bold mr-3 w-6">
+                    {(idx + 1).toString().padStart(2, "0")}
+                  </Text>
+                  {editingIndex === idx ? (
+                    <TextInput
+                      value={editingText}
+                      onChangeText={setEditingText}
+                      onBlur={() => {
+                        setSubtasks((prev) =>
+                          prev.map((item, i) =>
+                            i === idx ? { ...item, text: editingText } : item
+                          )
+                        );
+                        setEditingIndex(null);
+                      }}
+                      className="text-text-primary text-sm flex-1"
+                      multiline
+                    />
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditingIndex(idx);
+                        setEditingText(st.text);
+                      }}
+                      className="flex-1"
+                    >
+                      <Text className="text-text-primary text-sm">{st.text}</Text>
+                    </TouchableOpacity>
+                  )}
+                  <Text className="text-text-muted text-xs">{st.minutes}m</Text>
+                </View>
+              </GlassCard>
+            ))}
+          </View>
+        )}
 
         {/* Duration pills */}
         <View className="flex-row gap-3 mb-6">
@@ -124,9 +164,17 @@ export function BreakdownScreen({ route, navigation }: Props) {
           title="Start session →"
           onPress={() =>
             task.isTiny
-              ? navigation.navigate("TinyTask", { task })
+              ? navigation.navigate("TinyTask", {
+                  task: {
+                    ...task,
+                    subtasks: useSubtasks ? subtasks : [],
+                  },
+                })
               : navigation.navigate("ActiveSession", {
-                  task,
+                  task: {
+                    ...task,
+                    subtasks: useSubtasks ? subtasks : [],
+                  },
                   durationMinutes: selectedDuration,
                   beforePhotoUri: beforePhotoUri ?? undefined,
                   sound: undefined,

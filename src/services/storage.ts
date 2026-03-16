@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const SESSIONS_KEY = "@focus_sessions";
+const BACKLOG_KEY = "@focus_backlog";
 
 export interface Session {
   id: string;
@@ -13,6 +14,12 @@ export interface Session {
   [key: string]: unknown;
 }
 
+export interface BacklogTask {
+  id: string;
+  text: string;
+  createdAt: string;
+}
+
 export async function saveSession(session: Session): Promise<void> {
   const raw = await AsyncStorage.getItem(SESSIONS_KEY);
   const list: Session[] = raw ? JSON.parse(raw) : [];
@@ -22,6 +29,19 @@ export async function saveSession(session: Session): Promise<void> {
 
 export async function getAllSessions(): Promise<Session[]> {
   const raw = await AsyncStorage.getItem(SESSIONS_KEY);
+  if (!raw) return [];
+  return JSON.parse(raw);
+}
+
+export async function saveBacklogTask(task: BacklogTask): Promise<void> {
+  const raw = await AsyncStorage.getItem(BACKLOG_KEY);
+  const list: BacklogTask[] = raw ? JSON.parse(raw) : [];
+  list.push(task);
+  await AsyncStorage.setItem(BACKLOG_KEY, JSON.stringify(list));
+}
+
+export async function getBacklogTasks(): Promise<BacklogTask[]> {
+  const raw = await AsyncStorage.getItem(BACKLOG_KEY);
   if (!raw) return [];
   return JSON.parse(raw);
 }
