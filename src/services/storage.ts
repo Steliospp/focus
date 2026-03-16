@@ -2,6 +2,28 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const SESSIONS_KEY = "@focus_sessions";
 const BACKLOG_KEY = "@focus_backlog";
+const ACTIVE_TASK_KEY = "@focus_active_task";
+const BLOCKED_APPS_KEY = "@focus_blocked_apps";
+
+export type ProofType = "photo_before_after" | "file_upload" | "honor_system" | "none";
+
+export interface ActiveTask {
+  id: string;
+  title: string;
+  proofType: ProofType;
+  blockedAppIds: string[];
+  blockedAppNames?: string[];
+  startedAt: string;
+  milestones?: string[];
+}
+
+export type BlockLevel = "always" | "sometimes" | "never";
+
+export interface BlockedAppPref {
+  id: string;
+  name: string;
+  level: BlockLevel;
+}
 
 export interface Session {
   id: string;
@@ -44,6 +66,42 @@ export async function getBacklogTasks(): Promise<BacklogTask[]> {
   const raw = await AsyncStorage.getItem(BACKLOG_KEY);
   if (!raw) return [];
   return JSON.parse(raw);
+}
+
+export async function getActiveTask(): Promise<ActiveTask | null> {
+  const raw = await AsyncStorage.getItem(ACTIVE_TASK_KEY);
+  if (!raw) return null;
+  return JSON.parse(raw);
+}
+
+export async function setActiveTask(task: ActiveTask | null): Promise<void> {
+  if (task === null) {
+    await AsyncStorage.removeItem(ACTIVE_TASK_KEY);
+    return;
+  }
+  await AsyncStorage.setItem(ACTIVE_TASK_KEY, JSON.stringify(task));
+}
+
+const DEFAULT_BLOCKED_APPS: BlockedAppPref[] = [
+  { id: "instagram", name: "Instagram", level: "always" },
+  { id: "tiktok", name: "TikTok", level: "always" },
+  { id: "twitter", name: "Twitter", level: "sometimes" },
+  { id: "youtube", name: "YouTube", level: "sometimes" },
+  { id: "reddit", name: "Reddit", level: "sometimes" },
+  { id: "discord", name: "Discord", level: "sometimes" },
+  { id: "notion", name: "Notion", level: "never" },
+  { id: "gmail", name: "Gmail", level: "never" },
+  { id: "slack", name: "Slack", level: "never" },
+];
+
+export async function getBlockedAppPrefs(): Promise<BlockedAppPref[]> {
+  const raw = await AsyncStorage.getItem(BLOCKED_APPS_KEY);
+  if (!raw) return DEFAULT_BLOCKED_APPS;
+  return JSON.parse(raw);
+}
+
+export async function setBlockedAppPrefs(prefs: BlockedAppPref[]): Promise<void> {
+  await AsyncStorage.setItem(BLOCKED_APPS_KEY, JSON.stringify(prefs));
 }
 
 /**

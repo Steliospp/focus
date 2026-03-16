@@ -1,10 +1,16 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { GlassCard } from "../components/ui/GlassCard";
 import { SectionLabel } from "../components/ui/SectionLabel";
 import { SoftGradientBg } from "../components/ui/SoftGradientBg";
 import { useResetOnboarding } from "../context/OnboardingContext";
+import {
+  getBlockedAppPrefs,
+  setBlockedAppPrefs,
+  type BlockedAppPref,
+  type BlockLevel,
+} from "../services/storage";
 
 interface SettingRowProps {
   label: string;
@@ -64,14 +70,52 @@ const SECTIONS = [
   },
 ];
 
+const LEVEL_LABEL: Record<BlockLevel, string> = {
+  always: "Always block",
+  sometimes: "Sometimes block",
+  never: "Work tools (never block)",
+};
+
+function cycleLevel(l: BlockLevel): BlockLevel {
+  if (l === "always") return "sometimes";
+  if (l === "sometimes") return "never";
+  return "always";
+}
+
 export function SettingsScreen() {
   const resetOnboarding = useResetOnboarding();
+  const [blockedApps, setBlockedApps] = useState<BlockedAppPref[]>([]);
+
+  useEffect(() => {
+    getBlockedAppPrefs().then(setBlockedApps);
+  }, []);
+
+  const setLevel = (id: string, level: BlockLevel) => {
+    const next = blockedApps.map((a) => (a.id === id ? { ...a, level } : a));
+    setBlockedApps(next);
+    setBlockedAppPrefs(next);
+  };
 
   return (
     <SoftGradientBg>
       <SafeAreaView className="flex-1" edges={["top"]}>
         <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
           <Text className="text-text-primary text-3xl font-bold tracking-tight mt-1 mb-6">Settings</Text>
+
+          <SectionLabel label="Blocked apps" className="mb-3" />
+          <View className="gap-2 mb-6">
+            {blockedApps.map((a) => (
+              <TouchableOpacity
+                key={a.id}
+                onPress={() => setLevel(a.id, cycleLevel(a.level))}
+              >
+                <GlassCard soft className="p-4 flex-row items-center justify-between">
+                  <Text className="text-text-primary text-sm">{a.name}</Text>
+                  <Text className="text-accent text-sm">{LEVEL_LABEL[a.level]}</Text>
+                </GlassCard>
+              </TouchableOpacity>
+            ))}
+          </View>
 
         {SECTIONS.map((section) => (
           <View key={section.label} className="mb-6">

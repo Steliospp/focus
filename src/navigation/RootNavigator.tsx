@@ -13,11 +13,19 @@ import { StudyRecallScreen } from "../screens/StudyRecallScreen";
 import { ProjectSetupScreen } from "../screens/ProjectSetupScreen";
 import { ProjectTrackerScreen } from "../screens/ProjectTrackerScreen";
 import { WeeklyInsightsScreen } from "../screens/WeeklyInsightsScreen";
+import { CreateTaskScreen } from "../screens/CreateTaskScreen";
+import { TaskActiveScreen } from "../screens/TaskActiveScreen";
+import { ProofGateScreen } from "../screens/ProofGateScreen";
+import { UnlockedScreen } from "../screens/UnlockedScreen";
 import { theme } from "../theme";
 import type { TaskData, SessionSummary, ProjectData } from "./types";
 
 export type RootStackParamList = {
   Tabs: undefined;
+  CreateTask: { initialTask?: string } | undefined;
+  TaskActive: undefined;
+  ProofGate: undefined;
+  Unlocked: { taskTitle: string; durationMinutes: number; blockedAppNames: string[]; streak: number };
   TaskInput: { initialTask?: string } | undefined;
   Breakdown: { task: TaskData };
   ActiveSession: { task: TaskData; durationMinutes: number; beforePhotoUri?: string; sound?: string };
@@ -44,6 +52,10 @@ export function RootNavigator() {
       }}
     >
       <Stack.Screen name="Tabs" component={BottomTabNavigator} />
+      <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
+      <Stack.Screen name="TaskActive" component={TaskActiveScreen} options={{ gestureEnabled: false }} />
+      <Stack.Screen name="ProofGate" component={ProofGateScreen} />
+      <Stack.Screen name="Unlocked" component={UnlockedScreen} />
       <Stack.Screen name="TaskInput" component={TaskInputScreen} />
       <Stack.Screen name="Breakdown" component={BreakdownScreen} />
       <Stack.Screen

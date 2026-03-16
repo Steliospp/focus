@@ -18,9 +18,10 @@ export const theme = {
       muted: "#64748B",
     },
     semantic: {
-      green: "#86EFAC",
+      green: "#4ADE80",
       amber: "#FCD34D",
       red: "#FCA5A5",
+      lockRed: "#ff3b30",
     },
     glass: {
       border: "rgba(255,255,255,0.06)",

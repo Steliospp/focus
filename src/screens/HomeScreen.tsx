@@ -3,58 +3,43 @@ import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Ionicons } from "@expo/vector-icons";
 import { GlassCard } from "../components/ui/GlassCard";
-import { StreakDots } from "../components/ui/StreakDots";
 import { SectionLabel } from "../components/ui/SectionLabel";
-import { SessionCard } from "../components/ui/SessionCard";
 import { SoftGradientBg } from "../components/ui/SoftGradientBg";
+import { PrimaryButton } from "../components/ui/PrimaryButton";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import type { TaskData } from "../navigation/types";
-import { getAllSessions, calculateStreak, getBacklogTasks, type Session, type BacklogTask } from "../services/storage";
+import {
+  getActiveTask,
+  getAllSessions,
+  type ActiveTask,
+  type Session,
+} from "../services/storage";
+import { theme } from "../theme";
 
-const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
-
-function sessionToRolledOverTask(s: Session): TaskData {
-  const isTiny = s.taskType === "tiny" || (s.durationMinutes <= 10);
-  return {
-    taskTitle: s.taskTitle,
-    taskType: s.taskType ?? "transformation",
-    estimatedMinutes: s.durationMinutes,
-    isTiny,
-    isProject: s.taskType === "project",
-    subtasks: [],
-    suggestedDuration: s.durationMinutes,
-    requiresBeforePhoto: false,
-    subject: null,
-  };
-}
-
-function taskEmoji(taskType?: string): string {
-  if (taskType === "study") return "📚";
-  if (taskType === "tiny") return "🧹";
-  return "📝";
+function formatTimeAgo(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const mins = Math.round((now.getTime() - d.getTime()) / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}hr ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
 }
 
 export function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const today = new Date().getDay();
-  const [streak, setStreak] = useState(0);
-  const [rolledOver, setRolledOver] = useState<Session[]>([]);
-  const [backlog, setBacklog] = useState<BacklogTask[]>([]);
+  const [activeTask, setActiveTask] = useState<ActiveTask | null>(null);
+  const [recent, setRecent] = useState<Session[]>([]);
 
   const load = () => {
+    getActiveTask().then(setActiveTask);
     getAllSessions().then((sessions) => {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().slice(0, 10);
-      const fromYesterday = sessions.filter(
-        (s) => s.completedAt && s.completedAt.slice(0, 10) === yesterdayStr
-      );
-      const partialOrNotStarted = fromYesterday.filter((s) => s.verified === false);
-      setRolledOver(partialOrNotStarted);
+      const withDate = sessions.filter((s) => s.completedAt);
+      withDate.sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
+      setRecent(withDate.slice(0, 10));
     });
-    getBacklogTasks().then(setBacklog);
-    calculateStreak().then(setStreak);
   };
 
   useFocusEffect(
@@ -67,107 +52,80 @@ export function HomeScreen() {
     <SoftGradientBg>
       <SafeAreaView className="flex-1" edges={["top"]}>
         <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
-          {/* Header */}
-          <View className="flex-row items-center justify-between mt-1 mb-6">
-            <View>
-              <Text className="text-text-primary text-3xl font-bold tracking-tight">
-                Good day, Stelios
-              </Text>
-              <View className="flex-row gap-4 mt-3">
-                {DAYS.map((d, i) => (
-                  <Text
-                    key={i}
-                    className={`text-sm font-medium ${
-                      i === today ? "text-accent" : "text-text-muted"
-                    }`}
-                  >
-                    {d}
-                  </Text>
-                ))}
-              </View>
-            </View>
-            <View className="w-12 h-12 rounded-full bg-accent/20 items-center justify-center">
-              <Text className="text-accent text-lg font-bold">S</Text>
-            </View>
-          </View>
-
-          {/* Streak Card - soft style */}
-          <GlassCard soft className="p-5 mb-5">
-            <View className="flex-row items-center justify-between">
-              <View>
-                <Text className="text-text-primary text-lg font-semibold">
-                  {streak === 0 ? "No streak yet" : `${streak} day streak`}
-                </Text>
-                <Text className="text-text-muted text-sm mt-1">
-                  {streak > 0 ? "Keep it going!" : "Complete a session today"}
-                </Text>
-              </View>
-              <StreakDots filledUpTo={Math.min(streak, 7)} total={7} />
-            </View>
-          </GlassCard>
-
-          {/* Task Input - reference style rounded CTA */}
-          <TouchableOpacity
-            onPress={() => navigation.navigate("TaskInput")}
-            activeOpacity={0.8}
-            className="mb-6"
-          >
-            <View className="border-2 border-dashed border-white/10 rounded-card-lg py-8 items-center">
-              <Text className="text-text-muted text-base">
-                What are you working on?
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          <SectionLabel label="Rolled over" className="mb-3" />
-
-          <View className="gap-3 mb-10">
-            {rolledOver.map((s) => {
-              const task = sessionToRolledOverTask(s);
-              const isTiny = task.isTiny;
-              return (
-                <SessionCard
-                  key={s.id}
-                  emoji={taskEmoji(s.taskType)}
-                  title={s.taskTitle}
-                  subtitle={`Yesterday · ${s.verified === false ? "Partial" : "Not started"}`}
-                  badge={
-                    isTiny
-                      ? { label: "Tiny", variant: "red" }
-                      : { label: "Partial", variant: "amber" }
-                  }
-                  time={`${s.durationMinutes}m`}
-                  onPress={() =>
-                    isTiny
-                      ? navigation.navigate("TinyTask", { task })
-                      : navigation.navigate("Breakdown", { task })
-                  }
-                />
-              );
-            })}
-          </View>
-
-          {backlog.length > 0 && (
+          {activeTask ? (
             <>
-              <SectionLabel label="Saved for later" className="mb-3" />
-              <View className="gap-3 mb-10">
-                {backlog.map((t) => (
-                  <SessionCard
-                    key={t.id}
-                    emoji="📝"
-                    title={t.text}
-                    subtitle="Backlog"
-                    time={undefined}
-                    onPress={() =>
-                      navigation.navigate("TaskInput", {
-                        initialTask: t.text,
-                      })
-                    }
+              <GlassCard
+                className="p-5 mb-4"
+                style={{ borderColor: theme.colors.semantic.lockRed + "40", borderWidth: 1 }}
+              >
+                <View className="flex-row items-center mb-2">
+                  <Ionicons
+                    name="lock-closed"
+                    size={24}
+                    color={theme.colors.semantic.lockRed}
                   />
+                  <Text
+                    className="text-lg font-bold ml-2"
+                    style={{ color: theme.colors.semantic.lockRed }}
+                  >
+                    {activeTask.blockedAppIds.length} app
+                    {activeTask.blockedAppIds.length !== 1 ? "s" : ""} locked
+                  </Text>
+                </View>
+                <Text className="text-text-muted text-sm mb-1">Working on:</Text>
+                <Text className="text-text-primary text-xl font-semibold mb-4">
+                  {activeTask.title}
+                </Text>
+                <PrimaryButton
+                  title="PROVE COMPLETION"
+                  onPress={() => navigation.navigate("ProofGate")}
+                />
+              </GlassCard>
+              <Text className="text-text-muted text-sm mb-2">Currently blocked:</Text>
+              <View className="flex-row flex-wrap gap-2 mb-6">
+                {(activeTask.blockedAppNames ?? activeTask.blockedAppIds).map((name) => (
+                  <View
+                    key={name}
+                    className="px-3 py-1.5 rounded-full bg-white/10"
+                  >
+                    <Text className="text-text-secondary text-sm">{name}</Text>
+                  </View>
                 ))}
               </View>
             </>
-          )}
+          ) : null}
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate("CreateTask", {})}
+            activeOpacity={0.8}
+            className="mb-6"
+          >
+            <View className="border-2 border-dashed border-white/10 rounded-card-lg py-6 items-center">
+              <Ionicons name="add-circle-outline" size={28} color={theme.colors.accent} />
+              <Text className="text-text-muted text-base mt-2">NEW TASK</Text>
+            </View>
+          </TouchableOpacity>
+
+          <SectionLabel label="Recent" className="mb-3" />
+          <View className="gap-2 mb-10">
+            {recent.map((s) => (
+              <View
+                key={s.id}
+                className="flex-row items-center py-3 border-b border-white/5"
+              >
+                <Ionicons name="checkmark-circle" size={20} color={theme.colors.semantic.green} />
+                <Text className="text-text-primary flex-1 ml-3" numberOfLines={1}>
+                  {s.taskTitle}
+                </Text>
+                <Text className="text-text-muted text-sm">
+                  {s.completedAt ? formatTimeAgo(s.completedAt) : ""}
+                </Text>
+              </View>
+            ))}
+            {recent.length === 0 && (
+              <Text className="text-text-muted text-sm py-4">No completed tasks yet</Text>
+            )}
+          </View>
         </ScrollView>
       </SafeAreaView>
     </SoftGradientBg>
