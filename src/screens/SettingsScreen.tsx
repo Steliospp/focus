@@ -1,0 +1,81 @@
+import React from "react";
+import { View, Text, ScrollView } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { GlassCard } from "../components/ui/GlassCard";
+import { SectionLabel } from "../components/ui/SectionLabel";
+
+interface SettingRowProps {
+  label: string;
+  value: string;
+}
+
+function SettingRow({ label, value }: SettingRowProps) {
+  return (
+    <GlassCard className="p-4 flex-row items-center justify-between">
+      <Text className="text-text-primary text-sm">{label}</Text>
+      <Text className="text-accent text-sm">{value}</Text>
+    </GlassCard>
+  );
+}
+
+const SECTIONS = [
+  {
+    label: "Session defaults",
+    rows: [
+      { label: "Default duration", value: "25 min" },
+      { label: "Break length", value: "5 min" },
+      { label: "Auto-start breaks", value: "On" },
+    ],
+  },
+  {
+    label: "Verification",
+    rows: [
+      { label: "Require proof", value: "Always" },
+      { label: "AI confidence threshold", value: "80%" },
+      { label: "Friction questions", value: "On early end" },
+    ],
+  },
+  {
+    label: "Notifications",
+    rows: [
+      { label: "Session reminders", value: "On" },
+      { label: "Streak alerts", value: "On" },
+    ],
+  },
+  {
+    label: "Sound",
+    rows: [
+      { label: "Default sound", value: "Rain" },
+      { label: "Volume", value: "70%" },
+    ],
+  },
+  {
+    label: "Account",
+    rows: [
+      { label: "Name", value: "Stelios" },
+      { label: "Export data", value: "→" },
+    ],
+  },
+];
+
+export function SettingsScreen() {
+  return (
+    <SafeAreaView className="flex-1 bg-bg-primary">
+      <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
+        <Text className="text-text-primary text-2xl font-bold mt-2 mb-6">Settings</Text>
+
+        {SECTIONS.map((section) => (
+          <View key={section.label} className="mb-6">
+            <SectionLabel label={section.label} className="mb-3" />
+            <View className="gap-2">
+              {section.rows.map((row) => (
+                <SettingRow key={row.label} {...row} />
+              ))}
+            </View>
+          </View>
+        ))}
+        <View className="h-10" />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
