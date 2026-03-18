@@ -1,32 +1,40 @@
 import React from "react";
+import { View, TouchableOpacity } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { HomeScreen } from "../screens/HomeScreen";
-import { HistoryScreen } from "../screens/HistoryScreen";
+import { CalendarScreen } from "../screens/CalendarScreen";
+import { JournalScreen } from "../screens/JournalScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
-import { theme } from "../theme";
+import { MascotOrb } from "../components/ui/MascotOrb";
 
 const Tab = createBottomTabNavigator();
 
+// Dummy screen — never rendered, the button navigates to AddTask in the root stack
+function DummyScreen() {
+  return <View style={{ flex: 1 }} />;
+}
+
 export function BottomTabNavigator() {
+  const rootNav = useNavigation<NativeStackNavigationProp<any>>();
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
+        tabBarShowLabel: false,
         tabBarStyle: {
-          backgroundColor: theme.colors.bg.gradient.bottom,
-          borderTopColor: "rgba(255,255,255,0.06)",
+          backgroundColor: "#FAF8F4",
           borderTopWidth: 1,
-          height: 88,
-          paddingBottom: 28,
+          borderTopColor: "#E7E5E4",
+          height: 80,
+          paddingBottom: 24,
           paddingTop: 12,
         },
-        tabBarActiveTintColor: theme.colors.accent,
-        tabBarInactiveTintColor: theme.colors.text.muted,
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: "500",
-        },
+        tabBarActiveTintColor: "#1C1917",
+        tabBarInactiveTintColor: "#A8A29E",
       }}
     >
       <Tab.Screen
@@ -39,11 +47,49 @@ export function BottomTabNavigator() {
         }}
       />
       <Tab.Screen
-        name="History"
-        component={HistoryScreen}
+        name="Calendar"
+        component={CalendarScreen}
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="time" size={size} color={color} />
+            <Ionicons name="calendar" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="NewTask"
+        component={DummyScreen}
+        listeners={{
+          tabPress: (e) => {
+            e.preventDefault();
+            rootNav.navigate("AddTask");
+          },
+        }}
+        options={{
+          tabBarIcon: () => null,
+          tabBarButton: (props) => (
+            <TouchableOpacity
+              onPress={props.onPress ?? undefined}
+              onLongPress={props.onLongPress ?? undefined}
+              activeOpacity={0.8}
+              style={{
+                top: -40,
+                alignItems: "center",
+                justifyContent: "center",
+                width: 80,
+                height: 80,
+              }}
+            >
+              <MascotOrb mood="default" size={34} />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Journal"
+        component={JournalScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="journal-outline" size={size} color={color} />
           ),
         }}
       />

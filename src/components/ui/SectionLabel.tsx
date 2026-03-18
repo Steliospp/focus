@@ -8,7 +8,14 @@ interface SectionLabelProps {
 
 export function SectionLabel({ label, className }: SectionLabelProps) {
   return (
-    <Text className={`text-text-muted text-xs uppercase tracking-widest font-medium ${className ?? ""}`}>
+    <Text
+      className={className ?? ""}
+      style={{
+        fontFamily: "DMSans-Medium",
+        fontSize: 13,
+        color: "#78716C",
+      }}
+    >
       {label}
     </Text>
   );

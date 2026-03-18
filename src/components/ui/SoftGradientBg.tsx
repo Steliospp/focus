@@ -1,23 +1,20 @@
 import React from "react";
-import { View, StyleSheet } from "react-native";
-import { theme } from "../../theme";
+import { View } from "react-native";
 
 interface SoftGradientBgProps {
   children: React.ReactNode;
   className?: string;
+  dark?: boolean;
+  warm?: boolean;
 }
 
-export function SoftGradientBg({ children, className }: SoftGradientBgProps) {
+export function SoftGradientBg({ children, className, dark = false }: SoftGradientBgProps) {
   return (
-    <View className={`flex-1 ${className ?? ""}`} style={styles.wrapper}>
-      <View style={[styles.gradient, { backgroundColor: "#0a0908" }]} />
-      <View style={styles.content}>{children}</View>
+    <View
+      className={`flex-1 ${className ?? ""}`}
+      style={{ backgroundColor: dark ? "#1C1917" : "#FAF8F4" }}
+    >
+      {children}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrapper: { flex: 1 },
-  gradient: StyleSheet.absoluteFillObject,
-  content: { flex: 1 },
-});

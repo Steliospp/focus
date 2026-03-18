@@ -5,45 +5,69 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { SoftGradientBg } from "../../components/ui/SoftGradientBg";
 import { PrimaryButton } from "../../components/ui/PrimaryButton";
+import { useAppStore } from "../../store/useAppStore";
 import { theme } from "../../theme";
 import { textStyles } from "../../constants/fonts";
 
 type Nav = NativeStackNavigationProp<any>;
 
-export function OnboardingWelcomeScreen() {
+export function OnboardingFirstTaskScreen() {
   const navigation = useNavigation<Nav>();
+  const setIsOnboarded = useAppStore((s) => s.setIsOnboarded);
+
+  const handleCreateTask = () => {
+    setIsOnboarded(true);
+    // Navigate to AddTask from the main app
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "AddTask" }],
+    });
+  };
+
+  const handleSkip = () => {
+    setIsOnboarded(true);
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "Tabs" }],
+    });
+  };
 
   return (
     <SoftGradientBg>
       <SafeAreaView style={{ flex: 1, justifyContent: "center", paddingHorizontal: 24 }}>
         <Text style={{ fontSize: 48, textAlign: "center", marginBottom: 16 }}>
-          {"\u{1F3AF}"}
+          {"\u{1F680}"}
         </Text>
         <Text
           style={{
             ...textStyles.hero,
+            fontSize: 36,
             color: theme.colors.text.primary,
             textAlign: "center",
-            marginBottom: 12,
+            marginBottom: 8,
           }}
         >
-          Focus
+          You're all set!
         </Text>
         <Text
           style={{
             ...textStyles.aiComment,
             color: theme.colors.text.secondary,
             textAlign: "center",
-            marginBottom: 48,
+            marginBottom: 40,
             paddingHorizontal: 16,
           }}
         >
-          Block distractions, prove your work, and build real study habits with AI accountability.
+          Create your first task and start building focus habits today.
         </Text>
 
+        <PrimaryButton title="Create First Task" onPress={handleCreateTask} />
+
         <PrimaryButton
-          title="Get Started"
-          onPress={() => navigation.navigate("OnboardingHowItWorks")}
+          title="Explore the app first"
+          variant="outline"
+          onPress={handleSkip}
+          style={{ marginTop: 12 }}
         />
       </SafeAreaView>
     </SoftGradientBg>
