@@ -72,14 +72,14 @@ export function BottomTabNavigator() {
               onLongPress={props.onLongPress ?? undefined}
               activeOpacity={0.8}
               style={{
-                top: -40,
+                top: -52,
                 alignItems: "center",
                 justifyContent: "center",
-                width: 80,
-                height: 80,
+                width: 90,
+                height: 90,
               }}
             >
-              <MascotOrb mood="default" size={34} />
+              <MascotOrb mood="default" size={48} />
             </TouchableOpacity>
           ),
         }}

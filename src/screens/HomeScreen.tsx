@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Alert } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, Alert, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -71,7 +71,7 @@ function getGreeting(
 
 export function HomeScreen() {
   const navigation = useNavigation<Nav>();
-  const { tasks, userName, streakDays, totalFocusMinutes } = useAppStore();
+  const { tasks, userName, streakDays, totalFocusMinutes, updateTask, removeTask, addTask, setCurrentTask } = useAppStore();
   const {
     getUpcomingDeadlines,
     getMissedSessions,
@@ -113,9 +113,14 @@ export function HomeScreen() {
   threeDaysFromNow.setHours(23, 59, 59, 999);
   const todayStr = new Date().toISOString().split("T")[0];
 
+  const backlogTasks = tasks.filter((t) => t.status === "backlog");
+  const [backlogExpanded, setBacklogExpanded] = useState(false);
+  const [editingBacklogId, setEditingBacklogId] = useState<string | null>(null);
+  const [editingBacklogName, setEditingBacklogName] = useState("");
+
   const pendingTasks = tasks.filter((t) => {
     if (t.isRecurringTemplate) return false;
-    if (t.status === "completed" || t.status === "failed") return false;
+    if (t.status === "completed" || t.status === "failed" || t.status === "backlog") return false;
     if (t.status === "active" || t.status === "late") return true;
     if (t.scheduledDate) {
       return t.scheduledDate <= threeDaysFromNow.toISOString().split("T")[0];
@@ -457,6 +462,113 @@ export function HomeScreen() {
               + add something
             </Text>
           </TouchableOpacity>
+
+          {/* Someday / Backlog */}
+          {backlogTasks.length > 0 && (
+            <View style={{ marginTop: 16 }}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setBacklogExpanded(!backlogExpanded)}
+                style={{ paddingVertical: 10 }}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.heading,
+                    fontSize: 16,
+                    color: "#A8A29E",
+                  }}
+                >
+                  someday ({backlogTasks.length})
+                </Text>
+              </TouchableOpacity>
+
+              {backlogExpanded &&
+                backlogTasks.map((task) => (
+                  <TouchableOpacity
+                    key={task.id}
+                    activeOpacity={0.6}
+                    onPress={() => {
+                      setEditingBacklogId(task.id);
+                      setEditingBacklogName(task.name);
+                    }}
+                    onLongPress={() => {
+                      Alert.alert(task.name, undefined, [
+                        {
+                          text: "schedule this",
+                          onPress: () => navigation.navigate("AddTask", { prefilledName: task.name }),
+                        },
+                        {
+                          text: "do it now",
+                          onPress: () => {
+                            updateTask(task.id, {
+                              status: "active",
+                              estimatedMinutes: 30,
+                              proofType: "honor",
+                              blockedApps: [],
+                              startedAt: new Date().toISOString(),
+                            });
+                            setCurrentTask(task.id);
+                            navigation.navigate("ActiveTask", { taskId: task.id });
+                          },
+                        },
+                        {
+                          text: "delete",
+                          style: "destructive",
+                          onPress: () => removeTask(task.id),
+                        },
+                        { text: "cancel", style: "cancel" },
+                      ]);
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingVertical: 12,
+                      paddingLeft: 8,
+                    }}
+                  >
+                    <Text style={{ fontFamily: fonts.body, fontSize: 14, color: "#A8A29E", marginRight: 10 }}>{"\u00B7"}</Text>
+                    {editingBacklogId === task.id ? (
+                      <TextInput
+                        value={editingBacklogName}
+                        onChangeText={setEditingBacklogName}
+                        onBlur={() => {
+                          if (editingBacklogName.trim()) {
+                            updateTask(task.id, { name: editingBacklogName.trim() });
+                          }
+                          setEditingBacklogId(null);
+                        }}
+                        onSubmitEditing={() => {
+                          if (editingBacklogName.trim()) {
+                            updateTask(task.id, { name: editingBacklogName.trim() });
+                          }
+                          setEditingBacklogId(null);
+                        }}
+                        autoFocus
+                        style={{
+                          flex: 1,
+                          fontFamily: fonts.body,
+                          fontSize: 15,
+                          color: "#78716C",
+                          paddingVertical: 0,
+                        }}
+                      />
+                    ) : (
+                      <Text
+                        style={{
+                          flex: 1,
+                          fontFamily: fonts.body,
+                          fontSize: 15,
+                          color: "#78716C",
+                        }}
+                        numberOfLines={1}
+                      >
+                        {task.name}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+            </View>
+          )}
 
           {/* Upcoming Deadlines */}
           {upcomingDeadlines.length > 0 && (

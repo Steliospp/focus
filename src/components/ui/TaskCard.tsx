@@ -51,6 +51,7 @@ const statusConfig: Record<
     text: "#FFFFFF",
   },
   failed: { label: "Missed", bg: theme.colors.status.failed, text: "#FFFFFF" },
+  backlog: { label: "Someday", bg: "#A8A29E", text: "#FFFFFF" },
 };
 
 export function TaskCard({ task, onPress, scoreBadge, parentContext }: TaskCardProps) {

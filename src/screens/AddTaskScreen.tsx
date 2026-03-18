@@ -65,8 +65,10 @@ interface EditableSubtask {
 
 export function AddTaskScreen() {
   const navigation = useNavigation<Nav>();
-  const route = useRoute<RouteProp<{ params: { taskId?: string } }, "params">>();
+  const route = useRoute<RouteProp<{ params: { taskId?: string; prefilledDate?: string; prefilledName?: string } }, "params">>();
   const editTaskId = route.params?.taskId;
+  const prefilledDate = route.params?.prefilledDate;
+  const prefilledName = route.params?.prefilledName;
 
   const { tasks, addTask, updateTask, blockedApps: storeBlockedApps, unavailableDays: storeUnavailableDays, blockedDates } = useAppStore();
   const { getExistingLoadByDate } = useDeadlineScheduling();
@@ -78,7 +80,7 @@ export function AddTaskScreen() {
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
   // --- Task fields ---
-  const [name, setName] = useState(existingTask?.name ?? "");
+  const [name, setName] = useState(existingTask?.name ?? prefilledName ?? "");
   const [deadline, setDeadline] = useState<string | null>(null);
   const [duration, setDuration] = useState(existingTask?.estimatedMinutes ?? 45);
   const [selectedApps, setSelectedApps] = useState<string[]>(
@@ -119,6 +121,7 @@ export function AddTaskScreen() {
     estimatedMinutes: duration,
     proofType: "photo" as ProofType,
     blockedApps: selectedApps,
+    ...(prefilledDate ? { scheduledDate: prefilledDate } : {}),
   });
 
   // --- Step 5: AI Analysis ---
@@ -332,6 +335,16 @@ export function AddTaskScreen() {
       style={{ flex: 1 }}
     >
       <View style={{ flex: 1, justifyContent: "center", paddingHorizontal: 32 }}>
+        {prefilledDate && (
+          <Text style={{ fontFamily: "DMSans-Regular", fontSize: 13, color: "#A8A29E", marginBottom: 12 }}>
+            adding for {(() => {
+              const d = new Date(prefilledDate + "T12:00:00");
+              const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+              const months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+              return `${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}`;
+            })()}
+          </Text>
+        )}
         <Text
           style={{
             fontFamily: "CormorantGaramond-Italic",
@@ -378,6 +391,39 @@ export function AddTaskScreen() {
       )}
     </KeyboardAvoidingView>
   );
+
+  // --- Create backlog task (instant save, no AI) ---
+  const createBacklogTask = () => {
+    const newId = Date.now().toString();
+    const newTask: Task = {
+      id: newId,
+      name: name.trim(),
+      description: "",
+      category: "other" as TaskCategory,
+      estimatedMinutes: 0,
+      deadline: null,
+      blockedApps: [],
+      proofType: "honor" as ProofType,
+      status: "backlog",
+      createdAt: new Date().toISOString(),
+      startedAt: null,
+      completedAt: null,
+      aiAnalysis: null,
+      proofSubmission: null,
+      aiGrade: null,
+      reflectionAnswers: {},
+    };
+    addTask(newTask);
+    navigation.goBack();
+  };
+
+  // Auto-skip step 2 when date is pre-filled from calendar
+  useEffect(() => {
+    if (step === 2 && prefilledDate) {
+      setDeadline(prefilledDate);
+      goToStep(3);
+    }
+  }, [step, prefilledDate]);
 
   const renderStep2 = () => {
     const today = new Date();
@@ -514,12 +560,26 @@ export function AddTaskScreen() {
         )}
 
         <TouchableOpacity
+          onPress={createBacklogTask}
+          activeOpacity={0.7}
+          style={{ paddingVertical: 20 }}
+        >
+          <Text style={{ fontFamily: "DMSans-Regular", fontSize: 16, color: "#A8A29E" }}>
+            someday {"\u2014"} no rush
+          </Text>
+        </TouchableOpacity>
+
+        <Text style={{ fontFamily: "DMSans-Regular", fontSize: 13, color: "#A8A29E", marginTop: 8 }}>
+          you can always schedule it later
+        </Text>
+
+        <TouchableOpacity
           onPress={() => {
             setDeadline(null);
             goToStep(3);
           }}
           activeOpacity={0.7}
-          style={{ paddingTop: 32, paddingBottom: 24 }}
+          style={{ paddingTop: 24, paddingBottom: 24 }}
         >
           <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#A8A29E" }}>
             {"or skip if there's no deadline \u2192"}
@@ -774,68 +834,97 @@ export function AddTaskScreen() {
             this has a few steps
           </Text>
 
-          {editableSubtasks.map((subtask, index) => (
-            <View key={subtask.id} style={{ marginBottom: 16 }}>
-              <Text style={{ fontFamily: "DMSans-Regular", fontSize: 16, color: "#1C1917", lineHeight: 28 }}>
-                {index + 1}. {subtask.name} {"\u2014"}{" "}
-                {editingDurationIndex === index ? (
-                  <Text> </Text>
-                ) : (
-                  <Text
-                    onPress={() => setEditingDurationIndex(index)}
-                    style={{ color: "#1C1917" }}
-                  >
-                    {subtask.estimatedMinutes} min
-                  </Text>
-                )}
-                {" \u2014 "}{subtask.proofType} when done
-              </Text>
-              {editingDurationIndex === index && (
-                <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 24, marginTop: 4 }}>
-                  <TextInput
-                    value={subtask.estimatedMinutes.toString()}
-                    onChangeText={(val) => updateSubtaskDuration(index, val)}
-                    onBlur={() => setEditingDurationIndex(null)}
-                    keyboardType="number-pad"
-                    autoFocus
-                    style={{
-                      fontFamily: "DMSans-Regular",
-                      fontSize: 16,
-                      color: "#1C1917",
-                      borderBottomWidth: 1,
-                      borderBottomColor: "#D97706",
-                      width: 48,
-                      textAlign: "center",
-                      paddingVertical: 2,
-                    }}
-                  />
-                  <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#78716C", marginLeft: 4 }}>min</Text>
+          {(() => {
+            let stepNumber = 0;
+            return editableSubtasks.map((subtask, index) => {
+              stepNumber += 1;
+              const currentStepNumber = stepNumber;
+              return (
+                <View key={subtask.id} style={{ marginBottom: 12 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Text style={{ fontFamily: "DMSans-Regular", fontSize: 16, color: "#1C1917", lineHeight: 28, flex: 1 }}>
+                      {currentStepNumber}. {subtask.name.toLowerCase()} {"\u2014"}{" "}
+                      {editingDurationIndex === index ? (
+                        <Text> </Text>
+                      ) : (
+                        <Text
+                          onPress={() => setEditingDurationIndex(index)}
+                          style={{ color: "#1C1917" }}
+                        >
+                          {subtask.estimatedMinutes} min
+                        </Text>
+                      )}
+                      {" \uD83D\uDD12"}
+                    </Text>
+                  </View>
+                  {editingDurationIndex === index && (
+                    <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 24, marginTop: 4 }}>
+                      <TextInput
+                        value={subtask.estimatedMinutes.toString()}
+                        onChangeText={(val) => updateSubtaskDuration(index, val)}
+                        onBlur={() => setEditingDurationIndex(null)}
+                        keyboardType="number-pad"
+                        autoFocus
+                        style={{
+                          fontFamily: "DMSans-Regular",
+                          fontSize: 16,
+                          color: "#1C1917",
+                          borderBottomWidth: 1,
+                          borderBottomColor: "#D97706",
+                          width: 48,
+                          textAlign: "center",
+                          paddingVertical: 2,
+                        }}
+                      />
+                      <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#78716C", marginLeft: 4 }}>min</Text>
+                    </View>
+                  )}
+                  {subtask.waitMinutesAfter > 0 && (
+                    <Text
+                      style={{
+                        fontFamily: "DMSans-Regular",
+                        fontStyle: "italic",
+                        fontSize: 14,
+                        color: "#D97706",
+                        marginLeft: 28,
+                        marginTop: 2,
+                      }}
+                    >
+                      {"\u21B3"} {subtask.waitMinutesAfter} min free while {subtask.waitReason}
+                    </Text>
+                  )}
                 </View>
-              )}
-              {subtask.waitMinutesAfter > 0 && (
-                <Text
-                  style={{
-                    fontFamily: "DMSans-Regular",
-                    fontStyle: "italic",
-                    fontSize: 14,
-                    color: "#A8A29E",
-                    marginLeft: 24,
-                    marginTop: 2,
-                  }}
-                >
-                  {subtask.waitMinutesAfter} min free time ({subtask.waitReason})
-                </Text>
-              )}
-            </View>
-          ))}
+              );
+            });
+          })()}
 
-          <View style={{ marginTop: 24, alignItems: "flex-start" }}>
-            <TouchableOpacity onPress={handleLetsGo} activeOpacity={0.7}>
-              <Text style={{ fontFamily: "DMSans-Medium", fontSize: 18, color: "#D97706" }}>
-                {"let's go \u2192"}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => goToStep(1)} activeOpacity={0.7} style={{ marginTop: 16 }}>
+          <View style={{ marginTop: 20 }}>
+            <Text style={{ fontFamily: "DMSans-Regular", fontSize: 13, color: "#A8A29E" }}>
+              total active time: {editableSubtasks.reduce((sum, s) => sum + s.estimatedMinutes, 0)} min {"\u00B7"} total free time: {editableSubtasks.reduce((sum, s) => sum + s.waitMinutesAfter, 0)} min
+            </Text>
+            <Text style={{ fontFamily: "DMSans-Regular", fontSize: 13, color: "#A8A29E", marginTop: 4 }}>
+              you'll get notifications when each wait ends
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={handleLetsGo}
+            activeOpacity={0.7}
+            style={{
+              backgroundColor: "#D97706",
+              borderRadius: 9999,
+              paddingVertical: 16,
+              alignItems: "center",
+              marginTop: 32,
+            }}
+          >
+            <Text style={{ fontFamily: "DMSans-Medium", fontSize: 17, color: "#FAF8F4" }}>
+              Let's go
+            </Text>
+          </TouchableOpacity>
+
+          <View style={{ marginTop: 16, alignItems: "flex-start" }}>
+            <TouchableOpacity onPress={() => goToStep(1)} activeOpacity={0.7}>
               <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#A8A29E" }}>
                 edit details
               </Text>
@@ -897,13 +986,24 @@ export function AddTaskScreen() {
           proof needed: {getProofDescription(aiAnalysis.recommendedProofType)}
         </Text>
 
-        <View style={{ marginTop: 32, alignItems: "flex-start" }}>
-          <TouchableOpacity onPress={handleLetsGo} activeOpacity={0.7}>
-            <Text style={{ fontFamily: "DMSans-Medium", fontSize: 18, color: "#D97706" }}>
-              {"let's go \u2192"}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => goToStep(1)} activeOpacity={0.7} style={{ marginTop: 16 }}>
+        <TouchableOpacity
+          onPress={handleLetsGo}
+          activeOpacity={0.7}
+          style={{
+            backgroundColor: "#D97706",
+            borderRadius: 9999,
+            paddingVertical: 16,
+            alignItems: "center",
+            marginTop: 32,
+          }}
+        >
+          <Text style={{ fontFamily: "DMSans-Medium", fontSize: 17, color: "#FAF8F4" }}>
+            Let's go
+          </Text>
+        </TouchableOpacity>
+
+        <View style={{ marginTop: 16, alignItems: "flex-start" }}>
+          <TouchableOpacity onPress={() => goToStep(1)} activeOpacity={0.7}>
             <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#A8A29E" }}>
               edit details
             </Text>

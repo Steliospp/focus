@@ -9,13 +9,14 @@ import { ReflectScreen } from "../screens/ReflectScreen";
 import { BlockedScreen } from "../screens/BlockedScreen";
 import { CooldownScreen } from "../screens/CooldownScreen";
 import { SyllabusScreen } from "../screens/SyllabusScreen";
+import { JournalWriteScreen } from "../screens/JournalWriteScreen";
 import { useAppStore } from "../store/useAppStore";
 
 export type RootStackParamList = {
   Onboarding: undefined;
   Tabs: undefined;
-  AddTask: { taskId?: string } | undefined;
-  ActiveTask: { taskId: string };
+  AddTask: { taskId?: string; prefilledDate?: string; prefilledName?: string } | undefined;
+  ActiveTask: { taskId: string; autoAdvanceFromProof?: boolean };
   ProofGate: { taskId: string; capturedPhotos?: Record<string, string> };
   Cooldown: undefined;
   Reflect: { taskId: string };
@@ -67,6 +68,7 @@ export function RootNavigator() {
         options={{ gestureEnabled: false }}
       />
       <Stack.Screen name="Syllabus" component={SyllabusScreen} />
+      <Stack.Screen name="JournalEntry" component={JournalWriteScreen} />
     </Stack.Navigator>
   );
 }

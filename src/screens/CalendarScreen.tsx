@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { SoftGradientBg } from "../components/ui/SoftGradientBg";
 import { useAppStore, Task } from "../store/useAppStore";
 import { theme } from "../theme";
+import { fonts } from "../constants/fonts";
 
 type Nav = NativeStackNavigationProp<any>;
 
@@ -134,6 +135,117 @@ function TaskRow({ task, todayKey, onPress }: { task: Task; todayKey: string; on
   );
 }
 
+function formatDayLabel(dateKey: string): string {
+  const d = new Date(dateKey + "T12:00:00");
+  const dayName = WEEKDAY_FULL[d.getDay()];
+  const month = MONTH_NAMES[d.getMonth()];
+  const day = d.getDate();
+  return `${dayName}, ${month} ${day}`;
+}
+
+function DayDetailSection({
+  dateKey,
+  todayKey,
+  dayTasks,
+  backlogTasks,
+  onTaskPress,
+  onAddTask,
+}: {
+  dateKey: string;
+  todayKey: string;
+  dayTasks: Task[];
+  backlogTasks: Task[];
+  onTaskPress: (task: Task) => void;
+  onAddTask: (dateKey: string) => void;
+}) {
+  const randomBacklog = backlogTasks.slice(0, 3);
+
+  return (
+    <View>
+      {/* Date label */}
+      <Text
+        style={{
+          fontFamily: fonts.heading,
+          fontSize: 24,
+          fontStyle: "italic",
+          color: "#1C1917",
+          marginBottom: 8,
+        }}
+      >
+        {formatDayLabel(dateKey)}
+      </Text>
+
+      {/* Add something for this day */}
+      <TouchableOpacity
+        onPress={() => onAddTask(dateKey)}
+        activeOpacity={0.7}
+        style={{ paddingVertical: 12 }}
+      >
+        <Text style={{ fontFamily: fonts.body, fontSize: 16, color: "#78716C" }}>
+          + add something for this day {"\u2192"}
+        </Text>
+      </TouchableOpacity>
+
+      {/* Tasks or empty state */}
+      {dayTasks.length === 0 ? (
+        <Text
+          style={{
+            fontFamily: fonts.heading,
+            fontSize: 22,
+            fontStyle: "italic",
+            color: "#A8A29E",
+            paddingVertical: 16,
+          }}
+        >
+          nothing scheduled
+        </Text>
+      ) : (
+        dayTasks.map((task) => (
+          <TaskRow
+            key={task.id}
+            task={task}
+            todayKey={todayKey}
+            onPress={() => onTaskPress(task)}
+          />
+        ))
+      )}
+
+      {/* Backlog suggestions */}
+      {randomBacklog.length > 0 && (
+        <View style={{ marginTop: 16 }}>
+          <Text style={{ fontFamily: fonts.body, fontSize: 13, color: "#A8A29E", marginBottom: 8 }}>
+            from your someday list
+          </Text>
+          {randomBacklog.map((task) => (
+            <View
+              key={task.id}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                paddingVertical: 6,
+                paddingLeft: 8,
+              }}
+            >
+              <Text style={{ fontSize: 14, color: "#A8A29E", marginRight: 10 }}>{"\u00B7"}</Text>
+              <Text
+                style={{
+                  fontFamily: fonts.body,
+                  fontSize: 14,
+                  color: "#A8A29E",
+                  flex: 1,
+                }}
+                numberOfLines={1}
+              >
+                {task.name}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 export function CalendarScreen() {
   const navigation = useNavigation<Nav>();
   const tasks = useAppStore((s) => s.tasks);
@@ -163,6 +275,11 @@ export function CalendarScreen() {
   const firstDay = getFirstDayOfWeek(viewYear, viewMonth);
 
   const selectedTasks = tasksByDate[selectedDateKey] ?? [];
+  const backlogTasks = tasks.filter((t) => t.status === "backlog");
+
+  const handleAddForDate = (dateKey: string) => {
+    navigation.navigate("AddTask", { prefilledDate: dateKey });
+  };
 
   const goToPrevMonth = () => {
     if (viewMonth === 0) {
@@ -435,39 +552,15 @@ export function CalendarScreen() {
           {/* Thin divider between calendar and task list */}
           <View style={{ height: 1, backgroundColor: "#E7E5E4", marginBottom: 16 }} />
 
-          {/* Tasks for selected date */}
-          <Text
-            style={{
-              fontFamily: "DMSans-Regular",
-              fontSize: 14,
-              color: "#78716C",
-              marginBottom: 12,
-            }}
-          >
-            {formatDateLabel(selectedDateKey, todayKey)}
-          </Text>
-
-          {selectedTasks.length === 0 ? (
-            <Text
-              style={{
-                fontFamily: "DMSans-Regular",
-                fontSize: 14,
-                color: theme.colors.text.muted,
-                paddingVertical: 16,
-              }}
-            >
-              No tasks scheduled for this day.
-            </Text>
-          ) : (
-            selectedTasks.map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                todayKey={todayKey}
-                onPress={() => handleTaskPress(task)}
-              />
-            ))
-          )}
+          {/* Day detail with add task */}
+          <DayDetailSection
+            dateKey={selectedDateKey}
+            todayKey={todayKey}
+            dayTasks={selectedTasks}
+            backlogTasks={backlogTasks}
+            onTaskPress={handleTaskPress}
+            onAddTask={handleAddForDate}
+          />
 
           </>}
 
@@ -534,24 +627,15 @@ export function CalendarScreen() {
                 {/* Divider */}
                 <View style={{ height: 1, backgroundColor: "#E7E5E4", marginBottom: 16 }} />
 
-                {/* Tasks for selected day */}
-                <Text
-                  style={{
-                    fontFamily: "DMSans-Regular",
-                    fontSize: 14,
-                    color: "#78716C",
-                    marginBottom: 12,
-                  }}
-                >
-                  {formatDateLabel(selectedDateKey, todayKey)}
-                </Text>
-                {(tasksByDate[selectedDateKey] ?? []).length === 0 ? (
-                  <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: theme.colors.text.muted, paddingVertical: 16 }}>No tasks scheduled.</Text>
-                ) : (
-                  (tasksByDate[selectedDateKey] ?? []).map((task) => (
-                    <TaskRow key={task.id} task={task} todayKey={todayKey} onPress={() => handleTaskPress(task)} />
-                  ))
-                )}
+                {/* Day detail with add task */}
+                <DayDetailSection
+                  dateKey={selectedDateKey}
+                  todayKey={todayKey}
+                  dayTasks={tasksByDate[selectedDateKey] ?? []}
+                  backlogTasks={backlogTasks}
+                  onTaskPress={handleTaskPress}
+                  onAddTask={handleAddForDate}
+                />
               </View>
             );
           })()}

@@ -254,8 +254,35 @@ export function ProofGateScreen() {
   }) => {
     setGradeResult(grade);
     if (grade.score >= 60) {
-      setProofState("pass");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      const isMultiStep = task?.isMultiStep && task.subtasks && task.subtasks.length > 0;
+      const currentIdx = task?.currentSubtaskIndex ?? 0;
+      const hasMoreSteps = isMultiStep && currentIdx < task!.subtasks!.length - 1;
+
+      if (hasMoreSteps) {
+        allowExit.current = true;
+        updateTask(taskId, { aiGrade: grade, exitPath: "proof" });
+
+        // Mark current subtask completed, advance index
+        const updatedSubtasks = [...task!.subtasks!];
+        updatedSubtasks[currentIdx] = { ...updatedSubtasks[currentIdx], status: "completed" as const };
+
+        // Check if next step needs to wait or go directly
+        const currentSub = updatedSubtasks[currentIdx];
+        const hasWait = (currentSub as any).waitMinutesAfter > 0;
+        const nextIdx = currentIdx + 1;
+        updatedSubtasks[nextIdx] = { ...updatedSubtasks[nextIdx], status: hasWait ? ("pending" as const) : ("active" as const) };
+
+        updateTask(taskId, {
+          subtasks: updatedSubtasks,
+          currentSubtaskIndex: hasWait ? currentIdx : nextIdx,
+        });
+
+        navigation.replace("ActiveTask", { taskId, autoAdvanceFromProof: true });
+      } else {
+        setProofState("pass");
+      }
     } else {
       incrementFailedProofAttempts(taskId);
       updateTask(taskId, { aiGrade: grade });

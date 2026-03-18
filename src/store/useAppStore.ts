@@ -13,7 +13,7 @@ export type TaskCategory =
   | "work"
   | "errands"
   | "other";
-export type TaskStatus = "todo" | "active" | "completed" | "late" | "failed";
+export type TaskStatus = "todo" | "active" | "completed" | "late" | "failed" | "backlog";
 export type ProofType = "photo" | "written" | "honor";
 export type Difficulty = "easy" | "medium" | "hard";
 export type ProofStrictness = "strict" | "normal" | "relaxed";
@@ -184,6 +184,10 @@ export interface Task {
   abandonReason?: string | null;
   emergencyReason?: string | null;
   failedProofAttempts?: number;
+  /** ISO timestamp when the current wait phase started */
+  waitPhaseStartedAt?: string;
+  /** IDs of scheduled expo-notifications for this task's wait phases */
+  scheduledNotificationIds?: string[];
   cooldownServed?: boolean;
 }
 
