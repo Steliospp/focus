@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Crypto from 'expo-crypto';
+// expo-crypto loaded dynamically to avoid native module crash in Expo Go
 import {
   getEntries,
   saveEntry,
@@ -77,8 +77,17 @@ export function useJournal() {
         }
       }
 
+      // Generate UUID — try expo-crypto, fallback to simple random ID
+      let entryId: string;
+      try {
+        const Crypto = await import('expo-crypto');
+        entryId = Crypto.randomUUID();
+      } catch {
+        entryId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      }
+
       const entry: JournalEntry = {
-        id: Crypto.randomUUID(),
+        id: entryId,
         createdAt: now.toISOString(),
         duration,
         audioPath,
@@ -91,6 +100,16 @@ export function useJournal() {
 
       await saveEntry(entry);
       await updateStreak();
+
+      // Update notification schedule (cancel evening reminder, update streak reminder)
+      try {
+        const { getStreak } = await import('@/services/storage');
+        const { NotificationService } = await import('@/services/notifications');
+        const streak = await getStreak();
+        await NotificationService.onLogSaved(streak.currentStreak);
+      } catch (e) {
+        console.warn('[useJournal] notification update error:', e);
+      }
 
       // Refresh the local list
       setEntries((prev) => [entry, ...prev]);

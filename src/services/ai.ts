@@ -1,13 +1,17 @@
 import type {
   AIAnalysis,
   AIGrade,
+  ClassificationResult,
   DecompositionResult,
+  Horizon,
   JournalEntry,
   ParsedSyllabusTask,
   PhotoPrompt,
   PlannedSession,
   ReflectionQuestion,
   Task,
+  TaskArchetype,
+  TaskContext,
 } from "../store/useAppStore";
 
 const API_URL = "https://api.openai.com/v1/chat/completions";
@@ -46,6 +50,129 @@ function parseJSON<T>(text: string): T {
     .replace(/```\n?/g, "")
     .trim();
   return JSON.parse(cleaned);
+}
+
+// ── Keyword-based fallback classifier ────────────────────────────────
+const PRODUCER_KEYWORDS = /\b(essay|write|writing|code|coding|program|design|report|presentation|spreadsheet|build|draft|compose|thesis|paper|homework|problem set|study|read|review)\b/i;
+const DOER_KEYWORDS = /\b(laundry|clean|gym|cook|cooking|wash|fold|pack|fix|organize|mow|vacuum|dishes|iron|sweep|mop|workout|exercise|run|jog|swim|bike|groceries|shopping|move|assemble|paint|garden|rake)\b/i;
+const HANDLER_KEYWORDS = /\b(call|email|text|book|schedule|pay|buy|respond|register|sign up|signup|cancel|renew|return|send|message|contact|phone|appointment|order|rsvp|reply|submit|apply|enroll)\b/i;
+
+function fallbackClassify(taskName: string): ClassificationResult {
+  const lower = taskName.toLowerCase();
+
+  if (HANDLER_KEYWORDS.test(lower)) {
+    return {
+      archetype: "handler",
+      outputType: null,
+      needsGuidelines: false,
+      suggestedWorkTools: null,
+      isMultiStep: false,
+      steps: null,
+      estimatedMinutes: 10,
+      blockingLevel: 1,
+      proofRequired: false,
+      suggestedSessions: 1,
+    };
+  }
+
+  if (DOER_KEYWORDS.test(lower)) {
+    const isLaundry = /laundry/i.test(lower);
+    return {
+      archetype: "doer",
+      outputType: null,
+      needsGuidelines: false,
+      suggestedWorkTools: null,
+      isMultiStep: isLaundry,
+      steps: isLaundry
+        ? [
+            { name: "Sort & load washer", type: "active", estimatedMinutes: 5, photoPrompt: "Photo of loaded washing machine", waitReason: null },
+            { name: "Washing cycle", type: "wait", estimatedMinutes: 40, photoPrompt: null, waitReason: "Washer running" },
+            { name: "Transfer to dryer", type: "active", estimatedMinutes: 3, photoPrompt: "Photo of loaded dryer", waitReason: null },
+            { name: "Drying cycle", type: "wait", estimatedMinutes: 45, photoPrompt: null, waitReason: "Dryer running" },
+            { name: "Fold clothes", type: "active", estimatedMinutes: 15, photoPrompt: "Photo of folded clothes", waitReason: null },
+            { name: "Put away", type: "active", estimatedMinutes: 5, photoPrompt: "Photo of clothes put away", waitReason: null },
+          ]
+        : null,
+      estimatedMinutes: isLaundry ? 28 : 45,
+      blockingLevel: 3,
+      proofRequired: true,
+      suggestedSessions: 1,
+    };
+  }
+
+  // Default to producer
+  const isEssay = /essay|write|writing|paper|draft|thesis|compose/i.test(lower);
+  const isCode = /code|coding|program|build|develop/i.test(lower);
+  return {
+    archetype: "producer",
+    outputType: isEssay ? "essay" : isCode ? "code" : "other",
+    needsGuidelines: isEssay,
+    suggestedWorkTools: isCode ? ["VS Code", "Terminal"] : isEssay ? ["Google Docs"] : null,
+    isMultiStep: false,
+    steps: null,
+    estimatedMinutes: 45,
+    blockingLevel: 3,
+    proofRequired: true,
+    suggestedSessions: 1,
+  };
+}
+
+/**
+ * Classify a task into one of three archetypes: producer, doer, or handler.
+ * Runs instantly when user finishes typing. Drives all proof/blocking logic silently.
+ */
+export async function classifyTask(taskName: string): Promise<ClassificationResult> {
+  try {
+    const text = await callAI([
+      {
+        role: "user",
+        content: `Classify this task: "${taskName}"
+
+There are exactly 3 types:
+- "producer": User creates something that can be submitted as proof (essay, report, code, design, spreadsheet, studying, reading, problem sets)
+- "doer": User physically does something visible but not digital (laundry, gym, cooking, cleaning, groceries, packing, fixing things)
+- "handler": User handles something administrative or social (call someone, email, book appointment, pay bill, buy something, respond to messages)
+
+Return ONLY valid JSON:
+{
+  "archetype": "producer" | "doer" | "handler",
+  "outputType": "essay" | "code" | "design" | "other" | null,
+  "needsGuidelines": true | false,
+  "suggestedWorkTools": ["app name"] | null,
+  "isMultiStep": true | false,
+  "steps": [
+    {
+      "name": "step name",
+      "type": "active" | "wait",
+      "estimatedMinutes": 5,
+      "photoPrompt": "what to photograph" | null,
+      "waitReason": "why waiting" | null
+    }
+  ] | null,
+  "estimatedMinutes": 45,
+  "blockingLevel": 0 | 1 | 2 | 3,
+  "proofRequired": true | false,
+  "suggestedSessions": 1
+}
+
+RULES:
+- "handler" tasks: blockingLevel 1, proofRequired false, estimatedMinutes 5-15
+- "doer" tasks: blockingLevel 3, proofRequired true. If multi-step (laundry, cooking), include ALL steps with wait phases. estimatedMinutes = total ACTIVE time only.
+- "producer" tasks: blockingLevel 3, proofRequired true
+- For multi-step doer tasks: "wait" type steps represent passive waits (washer running, oven baking). "active" steps are things the user does.
+- photoPrompt: only for "active" doer steps. Describe what to photograph. Very brief.
+- outputType: only for producer tasks
+- suggestedWorkTools: only for producer tasks
+- needsGuidelines: true if producer task might have an assignment sheet
+- suggestedSessions: usually 1, more for large producer tasks
+- Be aggressive about classifying as "handler" — anything administrative, social, or phone-based`,
+      },
+    ]);
+    return parseJSON<ClassificationResult>(text);
+  } catch (error) {
+    console.warn("Task classification failed (using fallback):", (error as any)?.message ?? error);
+    return fallbackClassify(taskName);
+  }
 }
 
 // Category-aware fallback criteria when API is unavailable
@@ -306,6 +433,17 @@ export async function gradePhotoProof(
         .map((p, i) => `Photo ${i + 1} (${p.prompt.photoTiming}): "${p.prompt.photoPrompt}" — Look for: "${p.prompt.whatAILooksFor}"`)
         .join("\n");
 
+      const isDoer = task.archetype === "doer";
+      const leniencyNote = isDoer
+        ? `\n\nIMPORTANT: This is a physical/household task. Grade VERY leniently. You're just checking "did this happen?" not "was it perfect?"
+- "I can see folded clothes" = pass (90+)
+- "I can see a loaded washing machine" = pass (90+)
+- "I can see someone at the gym" = pass (90+)
+- Any reasonable evidence the task happened = pass
+- Only fail if the photo is completely unrelated to the task
+- Give benefit of the doubt ALWAYS`
+        : "";
+
       content.push({
         type: "text",
         text: `You are grading task completion based on photo evidence. Each photo was taken at a specific point with a specific purpose.
@@ -319,7 +457,7 @@ Finished early: ${task.finishedEarly ?? false}
 Photos submitted with their expected evidence:
 ${photoDescriptions}
 
-For each photo, check whether it shows what was expected. Grade based on how well the photos collectively prove the task was completed.
+For each photo, check whether it shows what was expected. Grade based on how well the photos collectively prove the task was completed.${leniencyNote}
 
 Return ONLY valid JSON:
 {
@@ -887,6 +1025,387 @@ Write ONLY the 2-3 sentence reflection, nothing else.`,
     }
     return `You completed ${count} task${count === 1 ? "" : "s"} and spent ${totalMinutes} minutes in deep focus this week. Keep building on that momentum.`;
   }
+}
+
+// ── Wait phase suggestion ─────────────────────────────────────────────
+
+export interface WaitSuggestion {
+  hasSuggestion: boolean;
+  taskId: string | null;
+  suggestionHeadline: string;
+  suggestionSubtext: string;
+  isRest: boolean;
+}
+
+function fallbackWaitSuggestion(
+  freeMinutes: number,
+  tasks: Task[],
+): WaitSuggestion {
+  // Find a task that fits in the time window (with 5 min buffer)
+  const available = freeMinutes - 5;
+  const candidates = tasks
+    .filter(
+      (t) =>
+        (t.status === "todo" || t.status === "late") &&
+        t.estimatedMinutes > 0 &&
+        t.estimatedMinutes <= available,
+    )
+    .sort((a, b) => {
+      // Overdue first
+      if (a.status === "late" && b.status !== "late") return -1;
+      if (b.status === "late" && a.status !== "late") return 1;
+      // Then by priority
+      const prio = { urgent: 0, high: 1, medium: 2, low: 3 };
+      return (prio[a.priority ?? "medium"] ?? 2) - (prio[b.priority ?? "medium"] ?? 2);
+    });
+
+  if (candidates.length > 0) {
+    const pick = candidates[0];
+    return {
+      hasSuggestion: true,
+      taskId: pick.id,
+      suggestionHeadline: `perfect time to ${pick.name.toLowerCase()}`,
+      suggestionSubtext: `it'll take about ${pick.estimatedMinutes} min — fits right in`,
+      isRest: false,
+    };
+  }
+
+  // Short handler tasks
+  const handlers = tasks.filter(
+    (t) => t.archetype === "handler" && t.status === "todo",
+  );
+  if (handlers.length > 0) {
+    const h = handlers[0];
+    return {
+      hasSuggestion: true,
+      taskId: h.id,
+      suggestionHeadline: `you've been meaning to ${h.name.toLowerCase()}`,
+      suggestionSubtext: `that's a quick thing. do it now?`,
+      isRest: false,
+    };
+  }
+
+  // Rest
+  return {
+    hasSuggestion: false,
+    taskId: null,
+    suggestionHeadline: "take a break. you've earned it.",
+    suggestionSubtext: `your phone is yours for ${freeMinutes} minutes 🌿`,
+    isRest: true,
+  };
+}
+
+export async function suggestWaitActivity(
+  freeMinutes: number,
+  tasks: Task[],
+): Promise<WaitSuggestion> {
+  const pendingTasks = tasks.filter(
+    (t) => t.status === "todo" || t.status === "late" || t.status === "backlog",
+  );
+
+  if (pendingTasks.length === 0) {
+    return {
+      hasSuggestion: false,
+      taskId: null,
+      suggestionHeadline: "nothing on your list right now.",
+      suggestionSubtext: "want to add something while you wait?",
+      isRest: false,
+    };
+  }
+
+  try {
+    const taskSummaries = pendingTasks
+      .slice(0, 15)
+      .map(
+        (t) =>
+          `{ id: "${t.id}", name: "${t.name}", status: "${t.status}", minutes: ${t.estimatedMinutes}, priority: "${t.priority ?? "medium"}", archetype: "${t.archetype ?? "doer"}" }`,
+      )
+      .join("\n");
+
+    const text = await callAI(
+      [
+        {
+          role: "user",
+          content: `User has ${freeMinutes} minutes of free time right now (waiting for something like a washer cycle).
+Here is their task list:
+${taskSummaries}
+
+Suggest the SINGLE best use of this time window.
+Criteria:
+- Task duration must fit within ${freeMinutes} minutes (leave 5 min buffer)
+- Prioritize: overdue (status "late") first, then high priority, then quick handler tasks
+- If nothing fits the time window: suggest rest
+- Keep the tone warm and casual, like a friend suggesting something
+
+Return ONLY valid JSON:
+{
+  "hasSuggestion": true,
+  "taskId": "the-task-id or null",
+  "suggestionHeadline": "short friendly suggestion",
+  "suggestionSubtext": "one line of context",
+  "isRest": false
+}`,
+        },
+      ],
+      512,
+    );
+
+    const result = parseJSON<WaitSuggestion>(text);
+    if (result && typeof result.suggestionHeadline === "string") {
+      return result;
+    }
+    throw new Error("Invalid suggestion format");
+  } catch (error) {
+    console.warn("suggestWaitActivity AI failed (using fallback):", (error as Error)?.message ?? error);
+    return fallbackWaitSuggestion(freeMinutes, tasks);
+  }
+}
+
+// ── Urgency Detection ────────────────────────────────────────────────
+
+export interface UrgencyResult {
+  horizon: Horizon;
+  deadline: string | null; // ISO timestamp
+  isUrgent: boolean; // due within 24 hours
+}
+
+const TODAY_KEYWORDS = /\b(today|tonight|now|asap|urgent|immediately|this morning|this afternoon|this evening|due today)\b/i;
+const SOON_KEYWORDS = /\b(tomorrow|this week|by\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)|due\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)|next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i;
+const TIME_PATTERN = /\b(at|by|before)\s+(\d{1,2})(:\d{2})?\s*(am|pm)?\b/i;
+const DATE_PATTERN = /\b(due|by)\s+(saturday|sunday|monday|tuesday|wednesday|thursday|friday|tomorrow|tonight)\b/i;
+
+const DAY_MAP: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
+};
+
+function getNextDayDate(dayName: string): Date {
+  const target = DAY_MAP[dayName.toLowerCase()];
+  if (target === undefined) return new Date();
+  const now = new Date();
+  const current = now.getDay();
+  let diff = target - current;
+  if (diff <= 0) diff += 7;
+  const result = new Date(now);
+  result.setDate(result.getDate() + diff);
+  result.setHours(23, 59, 0, 0);
+  return result;
+}
+
+export function detectUrgency(taskText: string): UrgencyResult {
+  const lower = taskText.toLowerCase();
+
+  // Check for explicit today signals
+  if (TODAY_KEYWORDS.test(lower)) {
+    const today = new Date();
+    today.setHours(23, 59, 0, 0);
+
+    // Try to extract specific time
+    const timeMatch = lower.match(TIME_PATTERN);
+    if (timeMatch) {
+      let hour = parseInt(timeMatch[2], 10);
+      const isPM = timeMatch[4]?.toLowerCase() === "pm";
+      const isAM = timeMatch[4]?.toLowerCase() === "am";
+      if (isPM && hour < 12) hour += 12;
+      if (isAM && hour === 12) hour = 0;
+      today.setHours(hour, timeMatch[3] ? parseInt(timeMatch[3].slice(1), 10) : 0, 0, 0);
+    }
+
+    return {
+      horizon: "today",
+      deadline: today.toISOString(),
+      isUrgent: true,
+    };
+  }
+
+  // Check for this-week / specific day signals
+  const dateMatch = lower.match(DATE_PATTERN);
+  if (dateMatch) {
+    const dayStr = dateMatch[2].toLowerCase();
+    if (dayStr === "tomorrow") {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(23, 59, 0, 0);
+      const hoursUntil = (tomorrow.getTime() - Date.now()) / (1000 * 60 * 60);
+      return {
+        horizon: hoursUntil <= 24 ? "today" : "soon",
+        deadline: tomorrow.toISOString(),
+        isUrgent: hoursUntil <= 24,
+      };
+    }
+    if (dayStr === "tonight") {
+      const tonight = new Date();
+      tonight.setHours(23, 59, 0, 0);
+      return { horizon: "today", deadline: tonight.toISOString(), isUrgent: true };
+    }
+    const targetDate = getNextDayDate(dayStr);
+    const hoursUntil = (targetDate.getTime() - Date.now()) / (1000 * 60 * 60);
+    return {
+      horizon: hoursUntil <= 24 ? "today" : "soon",
+      deadline: targetDate.toISOString(),
+      isUrgent: hoursUntil <= 24,
+    };
+  }
+
+  if (SOON_KEYWORDS.test(lower)) {
+    // Extract the day name from SOON_KEYWORDS match
+    const dayMatch = lower.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+    if (dayMatch) {
+      const targetDate = getNextDayDate(dayMatch[1]);
+      return {
+        horizon: "soon",
+        deadline: targetDate.toISOString(),
+        isUrgent: false,
+      };
+    }
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(23, 59, 0, 0);
+    return { horizon: "soon", deadline: tomorrow.toISOString(), isUrgent: false };
+  }
+
+  // No urgency detected — someday
+  return { horizon: "someday", deadline: null, isUrgent: false };
+}
+
+// ── Paste List Parser ────────────────────────────────────────────────
+
+export interface ParsedListItem {
+  name: string;
+  horizon: Horizon;
+  deadline: string | null;
+  contextName: string | null; // detected project/context name
+  isUrgent: boolean;
+  subtasks: string[];
+}
+
+export interface ParsedListResult {
+  items: ParsedListItem[];
+  detectedContexts: Array<{ name: string; color: string }>;
+  totalTasks: number;
+}
+
+const CONTEXT_COLORS = ["#F97316", "#3B82F6", "#A855F7", "#10B981", "#EF4444", "#EC4899", "#6366F1", "#14B8A6"];
+
+export async function parseListText(text: string): Promise<ParsedListResult> {
+  try {
+    const aiText = await callAI(
+      [
+        {
+          role: "user",
+          content: `Parse this freeform task list into structured data. The user copied this from their notes app.
+
+TEXT:
+"""
+${text}
+"""
+
+Analyze the text and return JSON:
+{
+  "items": [
+    {
+      "name": "task name",
+      "horizon": "today" | "soon" | "someday",
+      "deadline": "ISO date string or null",
+      "contextName": "project or category name if detected, else null",
+      "isUrgent": true/false,
+      "subtasks": ["subtask1", "subtask2"] // empty array if none
+    }
+  ],
+  "detectedContexts": [
+    { "name": "context name", "color": "#hex" }
+  ]
+}
+
+Rules:
+- Detect project headings (capitalized words, words followed by colons, repeated groupings)
+- Detect urgency signals: "URGENT", "tonight", "due Saturday", "by 3pm", etc.
+- Horizon: "today" = due today/urgent/tonight. "soon" = has a deadline this week. "someday" = no deadline/pressure.
+- Subtasks = indented items under a parent, items with dashes/bullets under a heading
+- For contexts, assign colors from this palette: ${CONTEXT_COLORS.join(", ")}
+- Personal/life tasks with no project context should have contextName: "life"
+- Keep task names concise and clean (strip bullets, dashes, numbers)`,
+        },
+      ],
+      2048,
+    );
+
+    const result = parseJSON<ParsedListResult>(aiText);
+    if (result?.items && Array.isArray(result.items)) {
+      return {
+        ...result,
+        totalTasks: result.items.length,
+      };
+    }
+    throw new Error("Invalid parse result");
+  } catch (error) {
+    console.warn("parseListText AI failed (using fallback):", (error as Error)?.message ?? error);
+    return fallbackParseList(text);
+  }
+}
+
+function fallbackParseList(text: string): ParsedListResult {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const items: ParsedListItem[] = [];
+  const contextMap = new Map<string, string>();
+  let currentContext: string | null = null;
+  let colorIndex = 0;
+
+  for (const line of lines) {
+    // Detect headings (all caps, ends with colon, or short capitalized line)
+    const isHeading =
+      /^[A-Z][A-Za-z0-9 ]{1,30}:?\s*$/.test(line) ||
+      line === line.toUpperCase() && line.length < 30 && !/[.!?]/.test(line);
+
+    if (isHeading) {
+      const name = line.replace(/:$/, "").trim();
+      currentContext = name;
+      if (!contextMap.has(name)) {
+        contextMap.set(name, CONTEXT_COLORS[colorIndex % CONTEXT_COLORS.length]);
+        colorIndex++;
+      }
+      continue;
+    }
+
+    // Skip very short lines
+    const cleaned = line.replace(/^[-–—•*·]\s*/, "").replace(/^\d+[.)]\s*/, "").trim();
+    if (cleaned.length < 2) continue;
+
+    // Check if this is a subtask (indented)
+    const isIndented = /^\s{2,}/.test(line) || /^[-–—•*·]\s/.test(line);
+    if (isIndented && items.length > 0) {
+      items[items.length - 1].subtasks.push(cleaned);
+      continue;
+    }
+
+    const urgency = detectUrgency(cleaned);
+
+    items.push({
+      name: cleaned,
+      horizon: urgency.horizon,
+      deadline: urgency.deadline,
+      contextName: currentContext,
+      isUrgent: urgency.isUrgent,
+      subtasks: [],
+    });
+  }
+
+  const detectedContexts = Array.from(contextMap.entries()).map(([name, color]) => ({
+    name,
+    color,
+  }));
+
+  // Add "life" for items without a context
+  if (items.some((i) => !i.contextName)) {
+    if (!detectedContexts.find((c) => c.name === "life")) {
+      detectedContexts.push({ name: "life", color: "#78716C" });
+    }
+    items.forEach((i) => {
+      if (!i.contextName) i.contextName = "life";
+    });
+  }
+
+  return { items, detectedContexts, totalTasks: items.length };
 }
 
 function fallbackParseSyllabus(text: string): ParsedSyllabusTask[] {

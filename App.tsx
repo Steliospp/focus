@@ -71,6 +71,8 @@ export default function App() {
 
   if (!fontsLoaded) return null;
 
+  // NO FLOATING BUTTONS ANYWHERE IN THIS APP
+  // Settings is ONLY accessible via the bottom tab navigator.
   return (
     <ErrorBoundary>
       <NavigationContainer>

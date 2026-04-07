@@ -10,6 +10,12 @@ import { BlockedScreen } from "../screens/BlockedScreen";
 import { CooldownScreen } from "../screens/CooldownScreen";
 import { SyllabusScreen } from "../screens/SyllabusScreen";
 import { JournalWriteScreen } from "../screens/JournalWriteScreen";
+import { TaskDetailScreen } from "../screens/TaskDetailScreen";
+import { WaitPhaseScreen } from "../screens/WaitPhaseScreen";
+import { DailyDealScreen } from "../screens/DailyDealScreen";
+import { PasteListScreen } from "../screens/PasteListScreen";
+import { OverflowScreen } from "../screens/OverflowScreen";
+import { ListSettingsScreen } from "../screens/ListSettingsScreen";
 import { useAppStore } from "../store/useAppStore";
 
 export type RootStackParamList = {
@@ -23,6 +29,12 @@ export type RootStackParamList = {
   Blocked: undefined;
   Syllabus: undefined;
   JournalEntry: { entryId: string };
+  TaskDetail: { taskId: string; quickStart?: boolean };
+  WaitPhase: { taskId: string };
+  DailyDeal: undefined;
+  PasteList: undefined;
+  Overflow: undefined;
+  ListSettings: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -69,6 +81,12 @@ export function RootNavigator() {
       />
       <Stack.Screen name="Syllabus" component={SyllabusScreen} />
       <Stack.Screen name="JournalEntry" component={JournalWriteScreen} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="WaitPhase" component={WaitPhaseScreen} />
+      <Stack.Screen name="DailyDeal" component={DailyDealScreen} />
+      <Stack.Screen name="PasteList" component={PasteListScreen} />
+      <Stack.Screen name="Overflow" component={OverflowScreen} />
+      <Stack.Screen name="ListSettings" component={ListSettingsScreen} />
     </Stack.Navigator>
   );
 }

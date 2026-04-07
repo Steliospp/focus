@@ -5,8 +5,8 @@ import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { HomeScreen } from "../screens/HomeScreen";
+import { MyListScreen } from "../screens/MyListScreen";
 import { CalendarScreen } from "../screens/CalendarScreen";
-import { JournalScreen } from "../screens/JournalScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { MascotOrb } from "../components/ui/MascotOrb";
 
@@ -47,11 +47,11 @@ export function BottomTabNavigator() {
         }}
       />
       <Tab.Screen
-        name="Calendar"
-        component={CalendarScreen}
+        name="MyList"
+        component={MyListScreen}
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar" size={size} color={color} />
+            <Ionicons name="list" size={size} color={color} />
           ),
         }}
       />
@@ -85,11 +85,11 @@ export function BottomTabNavigator() {
         }}
       />
       <Tab.Screen
-        name="Journal"
-        component={JournalScreen}
+        name="Calendar"
+        component={CalendarScreen}
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="journal-outline" size={size} color={color} />
+            <Ionicons name="calendar" size={size} color={color} />
           ),
         }}
       />

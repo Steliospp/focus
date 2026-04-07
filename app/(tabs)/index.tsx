@@ -1,14 +1,16 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import { View, Text, StyleSheet, Alert, Pressable, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 // FileSystem is lazy-loaded to avoid native module issues
-import { Colors, Fonts, Spacing } from '@/constants/theme';
+import { Colors, Fonts, Spacing, Radii } from '@/constants/theme';
 import { getDailyPrompt } from '@/constants/prompts';
 import { useRecording } from '@/hooks/useRecording';
 import { useStreak } from '@/hooks/useStreak';
 import { useJournal } from '@/hooks/useJournal';
 import { usePermissions } from '@/hooks/usePermissions';
+import { NotificationService } from '@/services/notifications';
 import RecordButton from '@/components/RecordButton';
 import BottomSheet from '@/components/BottomSheet';
 
@@ -32,6 +34,19 @@ export default function HomeScreen() {
   const [showSheet, setShowSheet] = useState(false);
   const [lastRecordingUri, setLastRecordingUri] = useState('');
   const [lastRecordingDuration, setLastRecordingDuration] = useState(0);
+  const [showNotifBanner, setShowNotifBanner] = useState(false);
+
+  // Check if we should show the notification permission banner
+  useEffect(() => {
+    (async () => {
+      const dismissed = await NotificationService.isBannerDismissed();
+      if (dismissed) return;
+      const status = await NotificationService.getPermissionStatus();
+      if (status !== 'granted') {
+        setShowNotifBanner(true);
+      }
+    })();
+  }, []);
 
   const audioLevelsRef = useRef<number[]>([]);
   const meterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -145,6 +160,37 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
+        {/* Notification permission banner */}
+        {showNotifBanner && (
+          <View style={styles.notifBanner}>
+            <View style={styles.notifBannerContent}>
+              <Ionicons name="notifications-outline" size={18} color={Colors.primary} />
+              <Text style={styles.notifBannerText}>
+                Enable notifications to get your daily nudge
+              </Text>
+            </View>
+            <View style={styles.notifBannerActions}>
+              <Pressable
+                style={styles.notifBannerEnable}
+                onPress={() => {
+                  Linking.openSettings();
+                }}
+              >
+                <Text style={styles.notifBannerEnableText}>Enable</Text>
+              </Pressable>
+              <Pressable
+                onPress={async () => {
+                  setShowNotifBanner(false);
+                  await NotificationService.dismissBanner();
+                }}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={18} color={Colors.textMuted} />
+              </Pressable>
+            </View>
+          </View>
+        )}
+
         {/* Top: Date + Prompt */}
         <View style={styles.header}>
           <Text style={styles.dateText}>{formatDate(today)}</Text>
@@ -252,5 +298,48 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sansRegular,
     fontSize: 14,
     color: Colors.textSecondary,
+  },
+  // Notification banner
+  notifBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radii.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  notifBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    flex: 1,
+  },
+  notifBannerText: {
+    fontFamily: Fonts.sansRegular,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    flex: 1,
+  },
+  notifBannerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginLeft: Spacing.sm,
+  },
+  notifBannerEnable: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 4,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radii.sm,
+  },
+  notifBannerEnableText: {
+    fontFamily: Fonts.sansMedium,
+    fontSize: 13,
+    color: '#FFFFFF',
   },
 });

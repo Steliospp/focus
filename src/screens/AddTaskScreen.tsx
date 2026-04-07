@@ -1,13 +1,15 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
   Animated,
   KeyboardAvoidingView,
   Platform,
+  Dimensions,
+  Keyboard,
+  PanResponder,
   ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -20,47 +22,43 @@ import {
   type ProofType,
   type Task,
   type Subtask,
-  type DecompositionResult,
   type AIAnalysis,
+  type ClassificationResult,
 } from "../store/useAppStore";
-import type { PlannedSession } from "../store/useAppStore";
-import { analyzeTask, decomposeTask, generateSessionPlan } from "../services/ai";
-import { useDeadlineScheduling } from "../hooks/useDeadlineScheduling";
+import { classifyTask, analyzeTask } from "../services/ai";
 import { MascotOrb } from "../components/ui/MascotOrb";
+import { theme } from "../theme";
+import { fonts } from "../constants/fonts";
 
 type Nav = NativeStackNavigationProp<any>;
 
-const COMMON_APPS = ["Instagram", "TikTok", "Snapchat", "YouTube", "Reddit", "Discord"];
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const COMMON_APPS = ["Instagram", "TikTok", "Snapchat", "YouTube", "Reddit"];
 
-const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
-
-function getDaysInMonth(year: number, month: number): number {
-  return new Date(year, month + 1, 0).getDate();
-}
-
-function getFirstDayOfWeek(year: number, month: number): number {
-  return new Date(year, month, 1).getDay();
-}
-
-function toDateKey(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
+const DEADLINE_OPTIONS = [
+  { key: "today", label: "today", muted: false },
+  { key: "this_week", label: "this week", muted: false },
+  { key: "pick_date", label: "pick a date", muted: false },
+  { key: "someday", label: "someday \u2014 no rush", muted: true },
+] as const;
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
+const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 
-interface EditableSubtask {
-  id: string;
-  name: string;
-  estimatedMinutes: number;
-  proofType: ProofType;
-  waitMinutesAfter: number;
-  waitReason: string;
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+function getFirstDayOfWeek(year: number, month: number): number {
+  return new Date(year, month, 1).getDay();
+}
+function toDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 export function AddTaskScreen() {
@@ -70,197 +68,277 @@ export function AddTaskScreen() {
   const prefilledDate = route.params?.prefilledDate;
   const prefilledName = route.params?.prefilledName;
 
-  const { tasks, addTask, updateTask, blockedApps: storeBlockedApps, unavailableDays: storeUnavailableDays, blockedDates } = useAppStore();
-  const { getExistingLoadByDate } = useDeadlineScheduling();
-
+  const { tasks, addTask, updateTask, blockedApps: storeBlockedApps } = useAppStore();
   const existingTask = editTaskId ? tasks.find((t) => t.id === editTaskId) : null;
 
   // --- Flow state ---
-  const [step, setStep] = useState(1);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const hasPrefilledName = !!(prefilledName && prefilledName.trim().length >= 3);
+  const [step, setStep] = useState(hasPrefilledName ? 2 : 1);
+  const [isSomeday, setIsSomeday] = useState(false);
 
   // --- Task fields ---
   const [name, setName] = useState(existingTask?.name ?? prefilledName ?? "");
-  const [deadline, setDeadline] = useState<string | null>(null);
+  const [deadline, setDeadline] = useState<string | null>(prefilledDate ?? null);
   const [duration, setDuration] = useState(existingTask?.estimatedMinutes ?? 45);
   const [selectedApps, setSelectedApps] = useState<string[]>(
-    existingTask?.blockedApps ?? [...storeBlockedApps]
+    existingTask?.blockedApps ?? [...storeBlockedApps].filter(a => COMMON_APPS.includes(a))
   );
 
-  // --- Calendar state for date picker ---
+  // --- Calendar state ---
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedDeadlineKey, setSelectedDeadlineKey] = useState<string | null>(null);
 
-  // --- AI analysis state ---
-  const [loading, setLoading] = useState(false);
+  // --- AI state (runs in background after Q1) ---
+  const [classification, setClassification] = useState<ClassificationResult | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(existingTask?.aiAnalysis ?? null);
-  const [decomposition, setDecomposition] = useState<DecompositionResult | null>(null);
-  const [editableSubtasks, setEditableSubtasks] = useState<EditableSubtask[]>([]);
-  const [editingDurationIndex, setEditingDurationIndex] = useState<number | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiReady, setAiReady] = useState(false);
+  const classificationRan = useRef(false);
 
-  // --- Animation ---
-  const goToStep = (nextStep: number) => {
-    Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
-      setStep(nextStep);
-      Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-    });
-  };
+  // --- Animations ---
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const durationAnim = useRef(new Animated.Value(0)).current;
+  const aiFadeAnim = useRef(new Animated.Value(0)).current;
+  const optionAnims = useRef(DEADLINE_OPTIONS.map(() => new Animated.Value(0))).current;
+  const nextFadeAnim = useRef(new Animated.Value(0)).current;
 
-  // --- Helpers ---
-  const toggleApp = (app: string) => {
-    setSelectedApps((prev) =>
-      prev.includes(app) ? prev.filter((a) => a !== app) : [...prev, app]
-    );
-  };
+  // --- Long press for duration ---
+  const longPressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const buildTaskData = (): Partial<Task> => ({
-    name: name.trim(),
-    description: "",
-    category: "other" as TaskCategory,
-    estimatedMinutes: duration,
-    proofType: "photo" as ProofType,
-    blockedApps: selectedApps,
-    ...(prefilledDate ? { scheduledDate: prefilledDate } : {}),
-  });
-
-  // --- Step 5: AI Analysis ---
-  const runAiAnalysis = async () => {
-    setLoading(true);
-    try {
-      const taskData = buildTaskData();
-
-      // If deadline was set, generate session plan
-      if (deadline) {
-        const [analysis, sessions] = await Promise.all([
-          analyzeTask(taskData),
-          generateSessionPlan(
-            taskData,
-            deadline,
-            storeUnavailableDays,
-            blockedDates,
-            getExistingLoadByDate(),
-          ),
-        ]);
-        setAiAnalysis(analysis);
-
-        // Also try decomposition
-        const decomp = await decomposeTask(taskData);
-        setDecomposition(decomp);
-        if (decomp.isMultiStep && decomp.subtasks.length > 0) {
-          setEditableSubtasks(
-            decomp.subtasks.map((s, i) => ({
-              id: Date.now().toString() + "-" + i,
-              name: s.name,
-              estimatedMinutes: s.estimatedMinutes,
-              proofType: s.proofType,
-              waitMinutesAfter: s.waitMinutesAfter,
-              waitReason: s.waitReason,
-            }))
-          );
-        }
-      } else {
-        // No deadline: run analyzeTask and decomposeTask in parallel
-        const [analysis, decomp] = await Promise.all([
-          analyzeTask(taskData),
-          decomposeTask(taskData),
-        ]);
-        setAiAnalysis(analysis);
-        setDecomposition(decomp);
-        if (decomp.isMultiStep && decomp.subtasks.length > 0) {
-          setEditableSubtasks(
-            decomp.subtasks.map((s, i) => ({
-              id: Date.now().toString() + "-" + i,
-              name: s.name,
-              estimatedMinutes: s.estimatedMinutes,
-              proofType: s.proofType,
-              waitMinutesAfter: s.waitMinutesAfter,
-              waitReason: s.waitReason,
-            }))
-          );
-        }
-      }
-    } catch (err) {
-      Alert.alert("Error", "Something went wrong analyzing your task. Please try again.");
-    } finally {
-      setLoading(false);
+  // --- Progress dots ---
+  // someday skips Q3, so 4 dots; otherwise 5
+  const totalDots = isSomeday ? 4 : 5;
+  const getDotIndex = (): number => {
+    if (isSomeday) {
+      if (step <= 2) return step - 1;
+      return step - 2; // 4→2, 5→3
     }
+    return step - 1;
   };
 
+  // --- Swipe back gesture ---
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gs) => gs.dx > 20 && Math.abs(gs.dy) < 40,
+      onPanResponderRelease: (_, gs) => {
+        if (gs.dx > 80) goBack();
+      },
+    })
+  ).current;
+
+  // --- Slide transition (spring, like turning a page) ---
+  const animateSlide = useCallback((direction: "forward" | "back", cb: () => void) => {
+    const exitTo = direction === "forward" ? -SCREEN_WIDTH : SCREEN_WIDTH;
+    const enterFrom = direction === "forward" ? SCREEN_WIDTH : -SCREEN_WIDTH;
+    Animated.timing(slideAnim, {
+      toValue: exitTo,
+      duration: 160,
+      useNativeDriver: true,
+    }).start(() => {
+      cb();
+      slideAnim.setValue(enterFrom);
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 65,
+        friction: 11,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [slideAnim]);
+
+  const goToStep = useCallback((next: number) => {
+    animateSlide(next > step ? "forward" : "back", () => setStep(next));
+  }, [step, animateSlide]);
+
+  const goBack = useCallback(() => {
+    if (step <= 1) { navigation.goBack(); return; }
+    const prev = (isSomeday && step === 4) ? 2 : step - 1;
+    goToStep(prev);
+  }, [step, isSomeday, goToStep, navigation]);
+
+  // --- Keyboard management ---
   useEffect(() => {
-    if (step === 5) {
-      runAiAnalysis();
+    if (step !== 1) Keyboard.dismiss();
+  }, [step]);
+
+  // --- "next →" fade in for Q1 ---
+  useEffect(() => {
+    Animated.timing(nextFadeAnim, {
+      toValue: name.trim().length >= 3 ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [name]);
+
+  // --- Stagger Q2 options ---
+  useEffect(() => {
+    if (step === 2) {
+      optionAnims.forEach(a => a.setValue(0));
+      optionAnims.forEach((anim, i) => {
+        setTimeout(() => {
+          Animated.timing(anim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+        }, i * 50);
+      });
     }
   }, [step]);
 
-  // --- Create single task ---
-  const createSingleTask = async () => {
-    const taskData = buildTaskData();
-    const analysis = aiAnalysis;
-
-    if (editTaskId && existingTask) {
-      updateTask(editTaskId, {
-        ...taskData,
-        aiAnalysis: analysis,
-        proofType: analysis?.recommendedProofType ?? "photo",
-        category: (analysis?.taskType as TaskCategory) ?? "other",
-      });
-      navigation.navigate("ActiveTask", { taskId: editTaskId });
-    } else {
-      const newId = Date.now().toString();
-      const newTask: Task = {
-        id: newId,
-        name: taskData.name!,
-        description: "",
-        category: (analysis?.taskType as TaskCategory) ?? "other",
-        estimatedMinutes: duration,
-        deadline,
-        blockedApps: selectedApps,
-        proofType: analysis?.recommendedProofType ?? "photo",
-        status: "todo",
-        createdAt: new Date().toISOString(),
-        startedAt: null,
-        completedAt: null,
-        aiAnalysis: analysis,
-        proofSubmission: null,
-        aiGrade: null,
-        reflectionAnswers: {},
-      };
-      addTask(newTask);
-      navigation.navigate("ActiveTask", { taskId: newId });
+  // --- Auto-skip Q2 when date is pre-filled ---
+  useEffect(() => {
+    if (step === 2 && prefilledDate) {
+      setDeadline(prefilledDate);
+      goToStep(3);
     }
-  };
+  }, [step, prefilledDate]);
 
-  // --- Create multi-step task ---
-  const handleStartMultiStep = async () => {
-    if (editableSubtasks.length === 0) {
-      Alert.alert("No steps", "Add at least one step to continue.");
+  // --- Run AI classification in background after Q1 ---
+  const runClassification = useCallback(async () => {
+    if (classificationRan.current) return;
+    classificationRan.current = true;
+    setAiLoading(true);
+    try {
+      const result = await classifyTask(name.trim());
+      setClassification(result);
+      // Use AI suggestions as defaults
+      setDuration(result.estimatedMinutes);
+      if (result.blockingLevel <= 1) setSelectedApps([]);
+    } catch (err) {
+      console.warn("Classification failed:", err);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [name]);
+
+  // Kick off classification when leaving Q1
+  useEffect(() => {
+    if (step >= 2 && !classificationRan.current && name.trim().length >= 3) {
+      runClassification();
+    }
+  }, [step, runClassification]);
+
+  // If prefilled name, start classification immediately
+  useEffect(() => {
+    if (hasPrefilledName) runClassification();
+  }, []);
+
+  // --- Run full AI analysis when entering Q5 ---
+  const runFullAnalysis = useCallback(async () => {
+    setAiReady(false);
+    aiFadeAnim.setValue(0);
+
+    // Wait for classification if still running
+    if (!classification && aiLoading) {
+      // Will re-trigger when classification completes
       return;
     }
 
     try {
-      const taskData = buildTaskData();
+      const taskData: Partial<Task> = {
+        name: name.trim(),
+        description: "",
+        category: "other" as TaskCategory,
+        estimatedMinutes: duration,
+        proofType: "photo" as ProofType,
+        blockedApps: selectedApps,
+        ...(prefilledDate ? { scheduledDate: prefilledDate } : {}),
+      };
 
-      const subtasks: Subtask[] = editableSubtasks.map((es) => ({
-        id: es.id,
-        name: es.name.trim(),
-        estimatedMinutes: es.estimatedMinutes,
-        proofType: es.proofType,
-        waitMinutesAfter: es.waitMinutesAfter,
-        waitReason: es.waitReason,
-        status: "pending",
-        aiGrade: null,
-        proofSubmission: null,
-      }));
+      const subtaskNames = classification?.isMultiStep && classification.steps
+        ? classification.steps.filter(s => s.type === "active").map(s => s.name)
+        : undefined;
 
-      const totalActiveMinutes = subtasks.reduce((sum, s) => sum + s.estimatedMinutes, 0);
-
-      const subtaskNames = subtasks.map((s) => s.name);
       const analysis = await analyzeTask(taskData, subtaskNames);
+      setAiAnalysis(analysis);
+    } catch (err) {
+      console.warn("Analysis failed:", err);
+    } finally {
+      setTimeout(() => {
+        setAiReady(true);
+        Animated.timing(aiFadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+      }, 800);
+    }
+  }, [classification, aiLoading, name, duration, selectedApps, prefilledDate, aiFadeAnim]);
 
-      // Map stepIndex in photoPrompts to actual subtask IDs
-      if (analysis.photoPrompts) {
-        analysis.photoPrompts = analysis.photoPrompts.map((pp) => {
+  useEffect(() => {
+    if (step === 5) runFullAnalysis();
+  }, [step]);
+
+  // Re-run when classification arrives if we're already on Q5
+  useEffect(() => {
+    if (step === 5 && classification && !aiReady) runFullAnalysis();
+  }, [classification]);
+
+  // --- Helpers ---
+  const toggleApp = (app: string) => {
+    setSelectedApps(prev =>
+      prev.includes(app) ? prev.filter(a => a !== app) : [...prev, app]
+    );
+  };
+
+  const adjustDuration = (delta: number) => {
+    setDuration(d => {
+      const next = Math.max(15, Math.min(180, d + delta));
+      durationAnim.setValue(delta > 0 ? 12 : -12);
+      Animated.spring(durationAnim, { toValue: 0, tension: 200, friction: 15, useNativeDriver: true }).start();
+      return next;
+    });
+  };
+
+  const startLongPress = (delta: number) => {
+    longPressInterval.current = setInterval(() => adjustDuration(delta > 0 ? 5 : -5), 120);
+  };
+  const stopLongPress = () => {
+    if (longPressInterval.current) { clearInterval(longPressInterval.current); longPressInterval.current = null; }
+  };
+
+  // --- Create backlog task ---
+  const createBacklogTask = () => {
+    const newId = Date.now().toString();
+    addTask({
+      id: newId, name: name.trim(), description: "",
+      category: "other" as TaskCategory, estimatedMinutes: 0,
+      deadline: null, blockedApps: [], proofType: "honor" as ProofType,
+      status: "backlog", createdAt: new Date().toISOString(),
+      startedAt: null, completedAt: null,
+      aiAnalysis: null, proofSubmission: null, aiGrade: null,
+      reflectionAnswers: {},
+    });
+    navigation.goBack();
+  };
+
+  // --- "let's go" handler ---
+  const handleLetsGo = async () => {
+    const archetype = classification?.archetype ?? "doer";
+    const proofType: ProofType = classification
+      ? (!classification.proofRequired ? "honor" : archetype === "producer" ? "written" : "photo")
+      : "photo";
+
+    // Multi-step task
+    if (classification?.isMultiStep && classification.steps) {
+      const allSteps = classification.steps;
+      const subtasks: Subtask[] = [];
+      let activeIndex = 0;
+      for (let i = 0; i < allSteps.length; i++) {
+        const s = allSteps[i];
+        if (s.type === "active") {
+          const nextStep = allSteps[i + 1];
+          subtasks.push({
+            id: Date.now().toString() + "-" + activeIndex,
+            name: s.name,
+            estimatedMinutes: s.estimatedMinutes,
+            proofType: "photo",
+            waitMinutesAfter: nextStep?.type === "wait" ? nextStep.estimatedMinutes : 0,
+            waitReason: nextStep?.type === "wait" ? (nextStep.waitReason ?? "") : "",
+            status: "pending", aiGrade: null, proofSubmission: null,
+          });
+          activeIndex++;
+        }
+      }
+      const totalActive = subtasks.reduce((sum, s) => sum + s.estimatedMinutes, 0);
+
+      if (aiAnalysis?.photoPrompts) {
+        aiAnalysis.photoPrompts = aiAnalysis.photoPrompts.map(pp => {
           if (pp.stepIndex !== undefined && pp.stepIndex < subtasks.length) {
             return { ...pp, stepId: subtasks[pp.stepIndex].id };
           }
@@ -269,774 +347,636 @@ export function AddTaskScreen() {
       }
 
       const newId = Date.now().toString();
-      const newTask: Task = {
-        id: newId,
-        name: taskData.name!,
-        description: "",
-        category: (analysis?.taskType as TaskCategory) ?? "other",
-        estimatedMinutes: totalActiveMinutes,
-        deadline,
-        blockedApps: selectedApps,
-        proofType: analysis?.recommendedProofType ?? "photo",
-        status: "todo",
-        createdAt: new Date().toISOString(),
-        startedAt: null,
-        completedAt: null,
-        aiAnalysis: analysis,
-        proofSubmission: null,
-        aiGrade: null,
-        reflectionAnswers: {},
-        isMultiStep: true,
-        subtasks,
-        currentSubtaskIndex: 0,
-      };
-
-      addTask(newTask);
+      addTask({
+        id: newId, name: name.trim(), description: "",
+        category: "other" as TaskCategory, estimatedMinutes: totalActive,
+        deadline, blockedApps: selectedApps, proofType,
+        status: "todo", archetype, blockingLevel: classification.blockingLevel,
+        createdAt: new Date().toISOString(), startedAt: null, completedAt: null,
+        aiAnalysis, proofSubmission: null, aiGrade: null, reflectionAnswers: {},
+        isMultiStep: true, subtasks, currentSubtaskIndex: 0,
+        ...(prefilledDate ? { scheduledDate: prefilledDate } : {}),
+      });
       navigation.navigate("ActiveTask", { taskId: newId });
-    } catch (err) {
-      Alert.alert("Error", "Something went wrong. Please try again.");
+      return;
     }
-  };
 
-  // --- Handle "let's go" ---
-  const handleLetsGo = () => {
-    if (decomposition?.isMultiStep && editableSubtasks.length > 0) {
-      handleStartMultiStep();
+    // Single task
+    if (editTaskId && existingTask) {
+      updateTask(editTaskId, {
+        name: name.trim(), estimatedMinutes: duration,
+        blockedApps: selectedApps, aiAnalysis, proofType, archetype,
+        blockingLevel: classification?.blockingLevel,
+        ...(classification?.outputType ? { outputType: classification.outputType } : {}),
+      });
+      navigation.navigate("ActiveTask", { taskId: editTaskId });
     } else {
-      createSingleTask();
+      const newId = Date.now().toString();
+      addTask({
+        id: newId, name: name.trim(), description: "",
+        category: "other" as TaskCategory, estimatedMinutes: duration,
+        deadline, blockedApps: selectedApps, proofType,
+        status: "todo", archetype,
+        blockingLevel: classification?.blockingLevel,
+        ...(classification?.outputType ? { outputType: classification.outputType } : {}),
+        createdAt: new Date().toISOString(), startedAt: null, completedAt: null,
+        aiAnalysis, proofSubmission: null, aiGrade: null, reflectionAnswers: {},
+        ...(prefilledDate ? { scheduledDate: prefilledDate } : {}),
+      });
+      navigation.navigate("ActiveTask", { taskId: newId });
     }
   };
 
-  // --- Proof type description ---
-  const getProofDescription = (proofType?: ProofType): string => {
-    switch (proofType) {
-      case "photo": return "one photo when you're done";
-      case "written": return "a written summary of what you did";
-      case "honor": return "no proof needed, just your reflection";
-      default: return "one photo when you're done";
-    }
-  };
+  // ================================================================
+  //  PROGRESS DOTS
+  // ================================================================
+  const renderDots = () => (
+    <View style={{ flexDirection: "row", justifyContent: "center", paddingTop: 12, paddingBottom: 4 }}>
+      {Array.from({ length: totalDots }).map((_, i) => {
+        const active = i === getDotIndex();
+        const past = i < getDotIndex();
+        return (
+          <View
+            key={i}
+            style={{
+              width: active ? 8 : 6,
+              height: active ? 8 : 6,
+              borderRadius: 4,
+              backgroundColor: active ? theme.colors.accent : past ? theme.colors.text.muted : theme.colors.border,
+              marginHorizontal: 4,
+            }}
+          />
+        );
+      })}
+    </View>
+  );
 
-  // --- Update editable subtask duration ---
-  const updateSubtaskDuration = (index: number, val: string) => {
-    const num = parseInt(val, 10);
-    if (!isNaN(num) && num > 0) {
-      setEditableSubtasks((prev) =>
-        prev.map((s, i) => (i === index ? { ...s, estimatedMinutes: num } : s))
-      );
-    }
-  };
-
-  // ========== RENDER STEPS ==========
-
-  const renderStep1 = () => (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={{ flex: 1 }}
-    >
-      <View style={{ flex: 1, justifyContent: "center", paddingHorizontal: 32 }}>
-        {prefilledDate && (
-          <Text style={{ fontFamily: "DMSans-Regular", fontSize: 13, color: "#A8A29E", marginBottom: 12 }}>
-            adding for {(() => {
-              const d = new Date(prefilledDate + "T12:00:00");
-              const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-              const months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
-              return `${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}`;
-            })()}
-          </Text>
-        )}
-        <Text
-          style={{
-            fontFamily: "CormorantGaramond-Italic",
-            fontSize: 32,
-            color: "#1C1917",
-            marginBottom: 24,
-          }}
-        >
-          What do you need to do?
+  // ================================================================
+  //  Q1 — "what do you need to do?"
+  // ================================================================
+  const renderQ1 = () => (
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+      <View style={{ flex: 1, justifyContent: "flex-start", paddingHorizontal: 32, paddingTop: 80 }}>
+        <Text style={{ fontFamily: fonts.heading, fontSize: 32, color: theme.colors.text.primary, marginBottom: 32 }}>
+          what do you need to do?
         </Text>
         <TextInput
           value={name}
           onChangeText={setName}
-          placeholder="write your essay, study chapter 5..."
-          placeholderTextColor="#A8A29E"
+          placeholder="type anything..."
+          placeholderTextColor={theme.colors.text.muted}
           autoFocus
+          onSubmitEditing={() => { if (name.trim().length >= 3) goToStep(2); }}
+          returnKeyType="next"
+          blurOnSubmit={false}
           style={{
-            fontFamily: "DMSans-Regular",
-            fontSize: 18,
-            color: "#1C1917",
-            fontStyle: name ? "normal" : "italic",
-            paddingVertical: 8,
+            fontFamily: fonts.body, fontSize: 20,
+            color: theme.colors.text.primary, paddingVertical: 8, borderWidth: 0,
           }}
+          selectionColor={theme.colors.accent}
           multiline
         />
       </View>
-      {name.trim().length >= 3 && (
-        <View style={{ paddingHorizontal: 32, paddingBottom: 32 }}>
-          <TouchableOpacity
-            onPress={() => goToStep(2)}
-            activeOpacity={0.7}
-            style={{
-              backgroundColor: "#D97706",
-              borderRadius: 9999,
-              paddingVertical: 16,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ fontFamily: "DMSans-Medium", fontSize: 17, color: "#FAF8F4" }}>
-              Next
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      <Animated.View style={{ position: "absolute", bottom: 40, right: 32, opacity: nextFadeAnim }}>
+        <TouchableOpacity
+          onPress={() => { if (name.trim().length >= 3) goToStep(2); }}
+          activeOpacity={0.7}
+        >
+          <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 16, color: theme.colors.accent }}>
+            next {"\u2192"}
+          </Text>
+        </TouchableOpacity>
+      </Animated.View>
     </KeyboardAvoidingView>
   );
 
-  // --- Create backlog task (instant save, no AI) ---
-  const createBacklogTask = () => {
-    const newId = Date.now().toString();
-    const newTask: Task = {
-      id: newId,
-      name: name.trim(),
-      description: "",
-      category: "other" as TaskCategory,
-      estimatedMinutes: 0,
-      deadline: null,
-      blockedApps: [],
-      proofType: "honor" as ProofType,
-      status: "backlog",
-      createdAt: new Date().toISOString(),
-      startedAt: null,
-      completedAt: null,
-      aiAnalysis: null,
-      proofSubmission: null,
-      aiGrade: null,
-      reflectionAnswers: {},
-    };
-    addTask(newTask);
-    navigation.goBack();
+  // ================================================================
+  //  Q2 — "when does it need to happen?"
+  // ================================================================
+  const formatDateLabel = (dateKey: string): string => {
+    const d = new Date(dateKey + "T12:00:00");
+    const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+    return `${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}`;
   };
 
-  // Auto-skip step 2 when date is pre-filled from calendar
-  useEffect(() => {
-    if (step === 2 && prefilledDate) {
-      setDeadline(prefilledDate);
-      goToStep(3);
-    }
-  }, [step, prefilledDate]);
+  // --- Schedule task for a specific date (no AI, no session) ---
+  const scheduleTaskForDate = (dateKey: string) => {
+    const newId = Date.now().toString();
+    addTask({
+      id: newId, name: name.trim(), description: "",
+      category: "other" as TaskCategory, estimatedMinutes: 0,
+      deadline: null, blockedApps: [], proofType: "honor" as ProofType,
+      status: "todo", scheduledDate: dateKey,
+      createdAt: new Date().toISOString(),
+      startedAt: null, completedAt: null,
+      aiAnalysis: null, proofSubmission: null, aiGrade: null,
+      reflectionAnswers: {},
+    });
+    // Show confirmation screen (step 6)
+    setSelectedDate(dateKey);
+    goToStep(6);
+  };
 
-  const renderStep2 = () => {
+  const renderQ2 = () => {
     const today = new Date();
     const todayKey = toDateKey(today);
-
-    // End of week (Sunday)
     const endOfWeek = new Date(today);
-    const dayOfWeek = today.getDay();
-    const daysUntilSunday = dayOfWeek === 0 ? 7 : 7 - dayOfWeek;
-    endOfWeek.setDate(today.getDate() + daysUntilSunday);
+    endOfWeek.setDate(today.getDate() + (today.getDay() === 0 ? 7 : 7 - today.getDay()));
     const endOfWeekKey = toDateKey(endOfWeek);
 
-    const handleSelectToday = () => {
-      setDeadline(todayKey);
-      goToStep(3);
-    };
-
-    const handleSelectThisWeek = () => {
-      setDeadline(endOfWeekKey);
-      goToStep(3);
+    const handleOption = (key: string) => {
+      setSelectedDeadlineKey(key);
+      if (key === "today") {
+        setDeadline(todayKey);
+        setIsSomeday(false);
+        setTimeout(() => goToStep(3), 300);
+      } else if (key === "this_week") {
+        setDeadline(endOfWeekKey);
+        setIsSomeday(false);
+        setTimeout(() => goToStep(3), 300);
+      } else if (key === "pick_date") {
+        setShowDatePicker(true);
+      } else if (key === "someday") {
+        setIsSomeday(true);
+        setTimeout(() => createBacklogTask(), 300);
+      }
     };
 
     const handlePickDate = (dateKey: string) => {
       setSelectedDate(dateKey);
-      setDeadline(dateKey);
-      // Auto-advance after picking
-      setTimeout(() => goToStep(3), 300);
+      // Scheduling = save for later. NOT starting a session.
+      scheduleTaskForDate(dateKey);
     };
 
-    // Calendar grid
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
     const daysInMonth = getDaysInMonth(year, month);
     const firstDay = getFirstDayOfWeek(year, month);
+    const cells: (number | null)[] = [];
+    for (let i = 0; i < firstDay; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
-    const calendarCells: (number | null)[] = [];
-    for (let i = 0; i < firstDay; i++) calendarCells.push(null);
-    for (let d = 1; d <= daysInMonth; d++) calendarCells.push(d);
+    // --- Date picker sub-view ---
+    if (showDatePicker) {
+      return (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 32, paddingTop: 60 }} keyboardShouldPersistTaps="handled">
+          {hasPrefilledName && (
+            <Text style={{ fontFamily: fonts.body, fontSize: 14, color: theme.colors.text.muted, marginBottom: 12 }}>
+              {name.trim()}
+            </Text>
+          )}
+          <Text style={{ fontFamily: fonts.heading, fontSize: 28, color: theme.colors.text.primary, marginBottom: 28 }}>
+            pick a date
+          </Text>
 
-    return (
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 32, paddingTop: 60 }}>
-        <Text
-          style={{
-            fontFamily: "CormorantGaramond-Italic",
-            fontSize: 32,
-            color: "#1C1917",
-            marginBottom: 36,
-          }}
-        >
-          When does this need to be done?
-        </Text>
+          {/* Month nav */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <TouchableOpacity onPress={() => setCalendarMonth(new Date(year, month - 1, 1))} activeOpacity={0.7} style={{ padding: 8 }}>
+              <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 20, color: theme.colors.text.secondary }}>{"\u2039"}</Text>
+            </TouchableOpacity>
+            <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 16, color: theme.colors.text.primary }}>
+              {MONTH_NAMES[month]} {year}
+            </Text>
+            <TouchableOpacity onPress={() => setCalendarMonth(new Date(year, month + 1, 1))} activeOpacity={0.7} style={{ padding: 8 }}>
+              <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 20, color: theme.colors.text.secondary }}>{"\u203A"}</Text>
+            </TouchableOpacity>
+          </View>
 
-        <TouchableOpacity onPress={handleSelectToday} activeOpacity={0.7} style={{ paddingVertical: 20 }}>
-          <Text style={{ fontFamily: "DMSans-Medium", fontSize: 18, color: "#1C1917" }}>today</Text>
-        </TouchableOpacity>
+          {/* Weekday headers */}
+          <View style={{ flexDirection: "row", marginBottom: 4 }}>
+            {WEEKDAY_LABELS.map((label, idx) => (
+              <View key={idx} style={{ flex: 1, alignItems: "center", paddingBottom: 8 }}>
+                <Text style={{ fontFamily: fonts.body, fontSize: 13, color: theme.colors.text.muted }}>{label}</Text>
+              </View>
+            ))}
+          </View>
 
-        <TouchableOpacity onPress={handleSelectThisWeek} activeOpacity={0.7} style={{ paddingVertical: 20 }}>
-          <Text style={{ fontFamily: "DMSans-Medium", fontSize: 18, color: "#1C1917" }}>this week</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setShowDatePicker(!showDatePicker)}
-          activeOpacity={0.7}
-          style={{ paddingVertical: 20 }}
-        >
-          <Text style={{ fontFamily: "DMSans-Medium", fontSize: 18, color: "#1C1917" }}>pick a date</Text>
-        </TouchableOpacity>
-
-        {showDatePicker && (
-          <View style={{ marginTop: 8 }}>
-            {/* Month navigation */}
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <TouchableOpacity
-                onPress={() => setCalendarMonth(new Date(year, month - 1, 1))}
-                activeOpacity={0.7}
-              >
-                <Text style={{ fontFamily: "DMSans-Medium", fontSize: 18, color: "#78716C" }}>{"<"}</Text>
-              </TouchableOpacity>
-              <Text style={{ fontFamily: "DMSans-Medium", fontSize: 16, color: "#1C1917" }}>
-                {MONTH_NAMES[month]} {year}
-              </Text>
-              <TouchableOpacity
-                onPress={() => setCalendarMonth(new Date(year, month + 1, 1))}
-                activeOpacity={0.7}
-              >
-                <Text style={{ fontFamily: "DMSans-Medium", fontSize: 18, color: "#78716C" }}>{">"}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Weekday headers */}
-            <View style={{ flexDirection: "row" }}>
-              {WEEKDAY_LABELS.map((label, i) => (
-                <View key={i} style={{ flex: 1, alignItems: "center", paddingBottom: 8 }}>
-                  <Text style={{ fontFamily: "DMSans-Regular", fontSize: 13, color: "#A8A29E" }}>{label}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Day grid */}
-            <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-              {calendarCells.map((day, i) => {
-                if (day === null) {
-                  return <View key={`empty-${i}`} style={{ width: "14.28%" }} />;
-                }
-                const dateKey = toDateKey(new Date(year, month, day));
-                const isSelected = selectedDate === dateKey;
-                const isPast = dateKey < todayKey;
-                return (
-                  <TouchableOpacity
-                    key={dateKey}
-                    disabled={isPast}
-                    onPress={() => handlePickDate(dateKey)}
-                    activeOpacity={0.7}
-                    style={{
-                      width: "14.28%",
-                      alignItems: "center",
-                      paddingVertical: 10,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontFamily: "DMSans-Regular",
-                        fontSize: 16,
-                        color: isPast ? "#E7E5E4" : isSelected ? "#D97706" : "#1C1917",
-                      }}
-                    >
+          {/* Days grid */}
+          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+            {cells.map((day, idx) => {
+              if (day === null) return <View key={`e-${idx}`} style={{ width: "14.28%", height: 44 }} />;
+              const dateKey = toDateKey(new Date(year, month, day));
+              const isToday = dateKey === todayKey;
+              const isSel = selectedDate === dateKey;
+              const isPast = dateKey < todayKey;
+              return (
+                <TouchableOpacity
+                  key={dateKey} disabled={isPast}
+                  onPress={() => handlePickDate(dateKey)} activeOpacity={0.7}
+                  style={{ width: "14.28%", height: 44, alignItems: "center", justifyContent: "center" }}
+                >
+                  <View style={{
+                    width: 36, height: 36, borderRadius: 18,
+                    alignItems: "center", justifyContent: "center",
+                    backgroundColor: isSel ? theme.colors.accent : "transparent",
+                  }}>
+                    <Text style={{
+                      fontFamily: fonts.body, fontSize: 15,
+                      color: isPast ? theme.colors.text.muted : isSel ? "#FAF8F4" : theme.colors.text.primary,
+                    }}>
                       {day}
                     </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                    {isToday && !isSel && (
+                      <View style={{
+                        width: 4, height: 4, borderRadius: 2,
+                        backgroundColor: theme.colors.accent,
+                        position: "absolute", bottom: 2,
+                      }} />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        )}
 
-        <TouchableOpacity
-          onPress={createBacklogTask}
-          activeOpacity={0.7}
-          style={{ paddingVertical: 20 }}
-        >
-          <Text style={{ fontFamily: "DMSans-Regular", fontSize: 16, color: "#A8A29E" }}>
-            someday {"\u2014"} no rush
+          {/* Back link */}
+          <TouchableOpacity
+            onPress={() => { setShowDatePicker(false); setSelectedDate(null); }}
+            activeOpacity={0.7}
+            style={{ marginTop: 24 }}
+          >
+            <Text style={{ fontFamily: fonts.body, fontSize: 14, color: theme.colors.text.muted }}>
+              {"\u2190"} back
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      );
+    }
+
+    // --- Main Q2 options ---
+    return (
+      <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 60 }}>
+        {hasPrefilledName && (
+          <Text style={{ fontFamily: fonts.body, fontSize: 14, color: theme.colors.text.muted, marginBottom: 12 }}>
+            {name.trim()}
           </Text>
-        </TouchableOpacity>
-
-        <Text style={{ fontFamily: "DMSans-Regular", fontSize: 13, color: "#A8A29E", marginTop: 8 }}>
-          you can always schedule it later
+        )}
+        <Text style={{ fontFamily: fonts.heading, fontSize: 38, color: theme.colors.text.primary, marginBottom: 48 }}>
+          when does it need{"\n"}to happen?
         </Text>
 
-        <TouchableOpacity
-          onPress={() => {
-            setDeadline(null);
-            goToStep(3);
-          }}
-          activeOpacity={0.7}
-          style={{ paddingTop: 24, paddingBottom: 24 }}
-        >
-          <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#A8A29E" }}>
-            {"or skip if there's no deadline \u2192"}
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
+        {DEADLINE_OPTIONS.map((opt, i) => (
+          <Animated.View key={opt.key} style={{ opacity: optionAnims[i] }}>
+            <TouchableOpacity
+              onPress={() => handleOption(opt.key)}
+              activeOpacity={0.6}
+              style={{
+                height: 72,
+                justifyContent: "center",
+                paddingLeft: 24,
+                borderBottomWidth: 1,
+                borderBottomColor: "#E7E5E4",
+              }}
+            >
+              <Text style={{
+                fontFamily: fonts.heading,
+                fontSize: 28,
+                color: opt.muted ? "#78716C" : "#1C1917",
+              }}>
+                {opt.label}
+              </Text>
+              {selectedDeadlineKey === opt.key && (
+                <View style={{
+                  height: 2,
+                  backgroundColor: theme.colors.accent,
+                  marginTop: 4,
+                  width: 120,
+                }} />
+              )}
+            </TouchableOpacity>
+          </Animated.View>
+        ))}
+      </View>
     );
   };
 
-  const renderStep3 = () => (
-    <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32 }}>
-      <Text
-        style={{
-          fontFamily: "CormorantGaramond-Italic",
-          fontSize: 32,
-          color: "#1C1917",
-          marginBottom: 48,
-          textAlign: "center",
-        }}
-      >
-        How long will this take?
-      </Text>
+  // ================================================================
+  //  Q3 — "roughly how long?"
+  // ================================================================
+  const renderQ3 = () => (
+    <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32 }}>
+        <Text style={{ fontFamily: fonts.heading, fontSize: 32, color: theme.colors.text.primary, marginBottom: 60, textAlign: "center" }}>
+          roughly how long?
+        </Text>
 
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
-        {/* Minus button */}
-        <TouchableOpacity
-          onPress={() => setDuration((d) => Math.max(15, d - 15))}
-          activeOpacity={0.7}
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 24,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Text style={{ fontFamily: "DMSans-Light", fontSize: 32, color: "#78716C" }}>{"\u2212"}</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: "row", alignItems: "center", width: "100%" }}>
+          {/* Left half — minus */}
+          <TouchableOpacity
+            onPress={() => adjustDuration(-15)}
+            onLongPress={() => startLongPress(-5)}
+            onPressOut={stopLongPress}
+            delayLongPress={400}
+            activeOpacity={0.7}
+            style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 60 }}
+          >
+            <Text style={{ fontFamily: fonts.bodyLight, fontSize: 40, color: theme.colors.text.secondary }}>{"\u2212"}</Text>
+          </TouchableOpacity>
 
-        {/* Duration display */}
-        <View style={{ alignItems: "center", marginHorizontal: 32 }}>
-          <Text style={{ fontFamily: "CormorantGaramond-Italic", fontSize: 72, color: "#1C1917" }}>{duration}</Text>
-          <Text style={{ fontFamily: "DMSans-Regular", fontSize: 16, color: "#78716C" }}>minutes</Text>
+          {/* Center number */}
+          <View style={{ alignItems: "center" }}>
+            <Animated.Text style={{
+              fontFamily: fonts.heading, fontSize: 80, color: theme.colors.text.primary,
+              transform: [{ translateY: durationAnim }],
+            }}>
+              {duration}
+            </Animated.Text>
+            <Text style={{ fontFamily: fonts.body, fontSize: 16, color: theme.colors.text.secondary, marginTop: -8 }}>
+              minutes
+            </Text>
+          </View>
+
+          {/* Right half — plus */}
+          <TouchableOpacity
+            onPress={() => adjustDuration(15)}
+            onLongPress={() => startLongPress(5)}
+            onPressOut={stopLongPress}
+            delayLongPress={400}
+            activeOpacity={0.7}
+            style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 60 }}
+          >
+            <Text style={{ fontFamily: fonts.bodyLight, fontSize: 40, color: theme.colors.text.secondary }}>+</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Plus button */}
-        <TouchableOpacity
-          onPress={() => setDuration((d) => Math.min(180, d + 15))}
-          activeOpacity={0.7}
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 24,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Text style={{ fontFamily: "DMSans-Light", fontSize: 32, color: "#78716C" }}>+</Text>
-        </TouchableOpacity>
+        <Text style={{ fontFamily: fonts.body, fontSize: 14, color: theme.colors.text.muted, marginTop: 40, textAlign: "center" }}>
+          AI suggested this based on your task
+        </Text>
       </View>
 
-      <Text
-        style={{
-          fontFamily: "DMSans-Regular",
-          fontSize: 14,
-          color: "#A8A29E",
-          marginTop: 32,
-          textAlign: "center",
-        }}
+      <TouchableOpacity
+        onPress={() => goToStep(4)}
+        activeOpacity={0.7}
+        style={{ position: "absolute", bottom: 40, right: 32 }}
       >
-        AI will adjust this based on your history
-      </Text>
-
-      <View style={{ position: "absolute", bottom: 32, left: 32, right: 32 }}>
-        <TouchableOpacity
-          onPress={() => goToStep(4)}
-          activeOpacity={0.7}
-          style={{
-            backgroundColor: "#D97706",
-            borderRadius: 9999,
-            paddingVertical: 16,
-            alignItems: "center",
-          }}
-        >
-          <Text style={{ fontFamily: "DMSans-Medium", fontSize: 17, color: "#FAF8F4" }}>
-            Next
-          </Text>
-        </TouchableOpacity>
-      </View>
+        <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 16, color: theme.colors.accent }}>
+          next {"\u2192"}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 
-  const renderStep4 = () => (
-    <View style={{ flex: 1, paddingHorizontal: 32, paddingTop: 60 }}>
-      <Text
-        style={{
-          fontFamily: "CormorantGaramond-Italic",
-          fontSize: 32,
-          color: "#1C1917",
-          marginBottom: 12,
-        }}
-      >
-        Block any apps while you work?
-      </Text>
-      <Text
-        style={{
-          fontFamily: "DMSans-Regular",
-          fontSize: 15,
-          color: "#78716C",
-          marginBottom: 28,
-        }}
-      >
-        These will lock until you submit proof
+  // ================================================================
+  //  Q4 — "block anything while you work?"
+  // ================================================================
+  const renderQ4 = () => (
+    <View style={{ flex: 1, paddingHorizontal: 32, paddingTop: 80 }}>
+      <Text style={{ fontFamily: fonts.heading, fontSize: 32, color: theme.colors.text.primary, marginBottom: 40 }}>
+        block anything while you work?
       </Text>
 
-      {COMMON_APPS.map((app) => {
+      {COMMON_APPS.map(app => {
         const isSelected = selectedApps.includes(app);
         return (
           <TouchableOpacity
-            key={app}
-            onPress={() => toggleApp(app)}
-            activeOpacity={0.7}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              paddingVertical: 14,
-            }}
+            key={app} onPress={() => toggleApp(app)} activeOpacity={0.7}
+            style={{ flexDirection: "row", alignItems: "center", paddingVertical: 16 }}
           >
-            <View
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: isSelected ? "#D97706" : "transparent",
-                borderWidth: isSelected ? 0 : 1.5,
-                borderColor: "#E7E5E4",
-              }}
-            />
-            <Text
-              style={{
-                fontFamily: "DMSans-Regular",
-                fontSize: 17,
-                color: "#1C1917",
-                marginLeft: 14,
-              }}
-            >
+            <View style={{
+              width: 10, height: 10, borderRadius: 5,
+              backgroundColor: isSelected ? theme.colors.accent : theme.colors.text.muted,
+              marginRight: 16,
+            }} />
+            <Text style={{ fontFamily: fonts.body, fontSize: 18, color: theme.colors.text.primary }}>
               {app}
             </Text>
           </TouchableOpacity>
         );
       })}
 
-      <View style={{ position: "absolute", bottom: 32, left: 32, right: 32, alignItems: "center" }}>
-        <TouchableOpacity
-          onPress={() => {
-            setSelectedApps([]);
-            goToStep(5);
-          }}
-          activeOpacity={0.7}
-          style={{ marginBottom: 16 }}
-        >
-          <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#A8A29E" }}>
-            skip
+      <View style={{ position: "absolute", bottom: 40, left: 32, right: 32, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <TouchableOpacity onPress={() => { setSelectedApps([]); goToStep(5); }} activeOpacity={0.7}>
+          <Text style={{ fontFamily: fonts.body, fontSize: 16, color: theme.colors.text.muted }}>
+            skip {"\u2192"}
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => goToStep(5)}
-          activeOpacity={0.7}
-          style={{
-            backgroundColor: "#D97706",
-            borderRadius: 9999,
-            paddingVertical: 16,
-            alignItems: "center",
-            width: "100%",
-          }}
-        >
-          <Text style={{ fontFamily: "DMSans-Medium", fontSize: 17, color: "#FAF8F4" }}>
-            Next
+        <TouchableOpacity onPress={() => goToStep(5)} activeOpacity={0.7}>
+          <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 16, color: theme.colors.accent }}>
+            done {"\u2192"}
           </Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 
-  const renderStep5 = () => {
-    const isMultiStep = decomposition?.isMultiStep && editableSubtasks.length > 0;
+  // ================================================================
+  //  Q5 — THE AI MOMENT
+  // ================================================================
+  const renderQ5 = () => {
+    const isMultiStep = classification?.isMultiStep && classification.steps && classification.steps.length > 0;
 
-    if (loading) {
+    // --- Loading: orb pulsing ---
+    if (!aiReady) {
       return (
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32 }}>
-          <Text
-            style={{
-              fontFamily: "CormorantGaramond-Italic",
-              fontSize: 24,
-              color: "#1C1917",
-              marginBottom: 40,
-              textAlign: "center",
-            }}
-          >
-            {name}
-          </Text>
           <MascotOrb mood="default" size={60} />
-          <Text
-            style={{
-              fontFamily: "DMSans-Regular",
-              fontSize: 16,
-              color: "#78716C",
-              marginTop: 24,
-            }}
-          >
-            thinking about your task...
+          <Text style={{ fontFamily: fonts.body, fontSize: 16, color: theme.colors.text.secondary, marginTop: 28 }}>
+            got it. let me think about this...
           </Text>
         </View>
       );
     }
 
-    if (!aiAnalysis) {
+    // --- Error ---
+    if (!aiAnalysis && !classification) {
       return (
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32 }}>
-          <Text style={{ fontFamily: "DMSans-Regular", fontSize: 16, color: "#78716C" }}>
-            Something went wrong. Tap to retry.
+          <Text style={{ fontFamily: fonts.body, fontSize: 16, color: theme.colors.text.secondary }}>
+            something went wrong
           </Text>
-          <TouchableOpacity onPress={runAiAnalysis} activeOpacity={0.7} style={{ marginTop: 16 }}>
-            <Text style={{ fontFamily: "DMSans-Medium", fontSize: 16, color: "#D97706" }}>retry</Text>
+          <TouchableOpacity onPress={runFullAnalysis} activeOpacity={0.7} style={{ marginTop: 16 }}>
+            <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 16, color: theme.colors.accent }}>retry</Text>
           </TouchableOpacity>
         </View>
       );
     }
 
+    // --- Multi-step result ---
     if (isMultiStep) {
-      // Multi-step view
-      return (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 32, paddingTop: 60, paddingBottom: 80 }}>
-          <Text
-            style={{
-              fontFamily: "CormorantGaramond-Italic",
-              fontSize: 24,
-              color: "#1C1917",
-              marginBottom: 8,
-            }}
-          >
-            {name}
-          </Text>
-          <Text
-            style={{
-              fontFamily: "CormorantGaramond-Italic",
-              fontSize: 22,
-              color: "#1C1917",
-              marginBottom: 24,
-            }}
-          >
-            this has a few steps
-          </Text>
+      const activeSteps = classification!.steps!.filter(s => s.type === "active");
+      const totalActive = activeSteps.reduce((sum, s) => sum + s.estimatedMinutes, 0);
+      const totalWait = classification!.steps!.filter(s => s.type === "wait").reduce((sum, s) => sum + s.estimatedMinutes, 0);
 
-          {(() => {
-            let stepNumber = 0;
-            return editableSubtasks.map((subtask, index) => {
-              stepNumber += 1;
-              const currentStepNumber = stepNumber;
-              return (
-                <View key={subtask.id} style={{ marginBottom: 12 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Text style={{ fontFamily: "DMSans-Regular", fontSize: 16, color: "#1C1917", lineHeight: 28, flex: 1 }}>
-                      {currentStepNumber}. {subtask.name.toLowerCase()} {"\u2014"}{" "}
-                      {editingDurationIndex === index ? (
-                        <Text> </Text>
-                      ) : (
-                        <Text
-                          onPress={() => setEditingDurationIndex(index)}
-                          style={{ color: "#1C1917" }}
-                        >
-                          {subtask.estimatedMinutes} min
-                        </Text>
-                      )}
-                      {" \uD83D\uDD12"}
+      return (
+        <Animated.View style={{ flex: 1, opacity: aiFadeAnim }}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 32, paddingTop: 80, paddingBottom: 120 }}>
+            <Text style={{ fontFamily: fonts.heading, fontSize: 24, color: theme.colors.text.primary, marginBottom: 28 }}>
+              this has a few steps.
+            </Text>
+
+            {(() => {
+              let num = 0;
+              return classification!.steps!.map((s, i) => {
+                if (s.type === "wait") {
+                  return (
+                    <Text key={`w-${i}`} style={{
+                      fontFamily: fonts.body, fontSize: 14, color: theme.colors.accent,
+                      marginLeft: 20, marginBottom: 14, fontStyle: "italic",
+                    }}>
+                      {"\u21B3"} {s.estimatedMinutes} min free ({s.waitReason})
+                    </Text>
+                  );
+                }
+                num++;
+                return (
+                  <View key={`s-${i}`} style={{ marginBottom: 4 }}>
+                    <Text style={{ fontFamily: fonts.body, fontSize: 16, color: theme.colors.text.primary, lineHeight: 26 }}>
+                      {num}. {s.name.toLowerCase()} {"\u2014"} {s.estimatedMinutes} min {"\uD83D\uDD12"}
                     </Text>
                   </View>
-                  {editingDurationIndex === index && (
-                    <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 24, marginTop: 4 }}>
-                      <TextInput
-                        value={subtask.estimatedMinutes.toString()}
-                        onChangeText={(val) => updateSubtaskDuration(index, val)}
-                        onBlur={() => setEditingDurationIndex(null)}
-                        keyboardType="number-pad"
-                        autoFocus
-                        style={{
-                          fontFamily: "DMSans-Regular",
-                          fontSize: 16,
-                          color: "#1C1917",
-                          borderBottomWidth: 1,
-                          borderBottomColor: "#D97706",
-                          width: 48,
-                          textAlign: "center",
-                          paddingVertical: 2,
-                        }}
-                      />
-                      <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#78716C", marginLeft: 4 }}>min</Text>
-                    </View>
-                  )}
-                  {subtask.waitMinutesAfter > 0 && (
-                    <Text
-                      style={{
-                        fontFamily: "DMSans-Regular",
-                        fontStyle: "italic",
-                        fontSize: 14,
-                        color: "#D97706",
-                        marginLeft: 28,
-                        marginTop: 2,
-                      }}
-                    >
-                      {"\u21B3"} {subtask.waitMinutesAfter} min free while {subtask.waitReason}
-                    </Text>
-                  )}
-                </View>
-              );
-            });
-          })()}
+                );
+              });
+            })()}
 
-          <View style={{ marginTop: 20 }}>
-            <Text style={{ fontFamily: "DMSans-Regular", fontSize: 13, color: "#A8A29E" }}>
-              total active time: {editableSubtasks.reduce((sum, s) => sum + s.estimatedMinutes, 0)} min {"\u00B7"} total free time: {editableSubtasks.reduce((sum, s) => sum + s.waitMinutesAfter, 0)} min
+            <Text style={{ fontFamily: fonts.body, fontSize: 13, color: theme.colors.text.muted, marginTop: 20 }}>
+              total active: {totalActive} min {"\u00B7"} free time: {totalWait} min
             </Text>
-            <Text style={{ fontFamily: "DMSans-Regular", fontSize: 13, color: "#A8A29E", marginTop: 4 }}>
-              you'll get notifications when each wait ends
+            <Text style={{ fontFamily: fonts.body, fontSize: 14, color: theme.colors.text.muted, marginTop: 24 }}>
+              looks right?
             </Text>
-          </View>
+          </ScrollView>
 
-          <TouchableOpacity
-            onPress={handleLetsGo}
-            activeOpacity={0.7}
-            style={{
-              backgroundColor: "#D97706",
-              borderRadius: 9999,
-              paddingVertical: 16,
-              alignItems: "center",
-              marginTop: 32,
-            }}
-          >
-            <Text style={{ fontFamily: "DMSans-Medium", fontSize: 17, color: "#FAF8F4" }}>
-              Let's go
-            </Text>
-          </TouchableOpacity>
-
-          <View style={{ marginTop: 16, alignItems: "flex-start" }}>
+          <View style={{ position: "absolute", bottom: 40, left: 32, right: 32, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <TouchableOpacity onPress={() => goToStep(1)} activeOpacity={0.7}>
-              <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#A8A29E" }}>
-                edit details
+              <Text style={{ fontFamily: fonts.body, fontSize: 16, color: theme.colors.text.muted }}>edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleLetsGo} activeOpacity={0.7}>
+              <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 16, color: theme.colors.accent }}>
+                let's go {"\u2192"}
               </Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
+        </Animated.View>
       );
     }
 
-    // Single task view
-    return (
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 32, paddingTop: 60, paddingBottom: 80 }}>
-        <Text
-          style={{
-            fontFamily: "CormorantGaramond-Italic",
-            fontSize: 24,
-            color: "#1C1917",
-            marginBottom: 24,
-          }}
-        >
-          {name}
-        </Text>
-
-        <Text
-          style={{
-            fontFamily: "CormorantGaramond-Italic",
-            fontSize: 22,
-            color: "#1C1917",
-            marginBottom: 20,
-          }}
-        >
-          Here's how I'll grade this
-        </Text>
-
-        {aiAnalysis.gradingCriteria.map((criterion, i) => (
-          <Text
-            key={i}
-            style={{
-              fontFamily: "DMSans-Regular",
-              fontSize: 16,
-              color: "#1C1917",
-              lineHeight: 28,
-            }}
-          >
-            {"\u00B7"} {criterion}
+    // --- Producer task ---
+    if (classification?.archetype === "producer" && classification.needsGuidelines) {
+      return (
+        <Animated.View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32, opacity: aiFadeAnim }}>
+          <Text style={{ fontFamily: fonts.heading, fontSize: 24, color: theme.colors.text.primary, marginBottom: 24, textAlign: "center" }}>
+            want to add your assignment details?
           </Text>
-        ))}
 
-        {/* Divider */}
-        <View style={{ height: 1, backgroundColor: "#E7E5E4", marginVertical: 20 }} />
-
-        <Text
-          style={{
-            fontFamily: "DMSans-Regular",
-            fontSize: 15,
-            color: "#78716C",
-          }}
-        >
-          proof needed: {getProofDescription(aiAnalysis.recommendedProofType)}
-        </Text>
-
-        <TouchableOpacity
-          onPress={handleLetsGo}
-          activeOpacity={0.7}
-          style={{
-            backgroundColor: "#D97706",
-            borderRadius: 9999,
-            paddingVertical: 16,
-            alignItems: "center",
-            marginTop: 32,
-          }}
-        >
-          <Text style={{ fontFamily: "DMSans-Medium", fontSize: 17, color: "#FAF8F4" }}>
-            Let's go
-          </Text>
-        </TouchableOpacity>
-
-        <View style={{ marginTop: 16, alignItems: "flex-start" }}>
-          <TouchableOpacity onPress={() => goToStep(1)} activeOpacity={0.7}>
-            <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#A8A29E" }}>
-              edit details
+          <TouchableOpacity activeOpacity={0.7} style={{ paddingVertical: 16 }}>
+            <Text style={{ fontFamily: fonts.body, fontSize: 18, color: theme.colors.text.primary, textAlign: "center" }}>
+              {"\uD83D\uDCF8"} photograph assignment sheet
             </Text>
           </TouchableOpacity>
-        </View>
-      </ScrollView>
+
+          <TouchableOpacity onPress={handleLetsGo} activeOpacity={0.7} style={{ paddingVertical: 16 }}>
+            <Text style={{ fontFamily: fonts.body, fontSize: 16, color: theme.colors.text.muted }}>
+              skip {"\u2192"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={handleLetsGo} activeOpacity={0.7} style={{ position: "absolute", bottom: 40, right: 32 }}>
+            <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 16, color: theme.colors.accent }}>
+              let's go {"\u2192"}
+            </Text>
+          </TouchableOpacity>
+        </Animated.View>
+      );
+    }
+
+    // --- Simple task result ---
+    const proofDesc = classification?.archetype === "producer"
+      ? classification.outputType === "essay" ? "paste your work" : classification.outputType === "code" ? "screenshot your code" : "submit your work"
+      : aiAnalysis?.recommendedProofType === "written" ? "written summary"
+        : aiAnalysis?.recommendedProofType === "honor" ? "honor system"
+          : "photo when done";
+    const appsBlocked = selectedApps.length > 0
+      ? selectedApps.join(", ") + " blocked"
+      : "no apps blocked";
+
+    return (
+      <Animated.View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32, opacity: aiFadeAnim }}>
+        <Text style={{ fontFamily: fonts.heading, fontSize: 24, color: theme.colors.text.primary, marginBottom: 20, textAlign: "center" }}>
+          you're all set.
+        </Text>
+
+        <Text style={{ fontFamily: fonts.body, fontSize: 15, color: theme.colors.text.secondary, textAlign: "center", lineHeight: 24 }}>
+          {duration} min {"\u00B7"} {proofDesc} {"\u00B7"} {appsBlocked}
+        </Text>
+
+        <TouchableOpacity onPress={handleLetsGo} activeOpacity={0.7} style={{ position: "absolute", bottom: 40, right: 32 }}>
+          <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 16, color: theme.colors.accent }}>
+            let's go {"\u2192"}
+          </Text>
+        </TouchableOpacity>
+      </Animated.View>
     );
   };
 
-  // ========== MAIN RENDER ==========
+  // ================================================================
+  //  Q6 — SCHEDULING CONFIRMATION (after "pick a date")
+  // ================================================================
+  const renderScheduleConfirmation = () => {
+    const dateLabel = selectedDate ? formatDateLabel(selectedDate) : "";
+
+    // Auto-return to dashboard after 1.5s
+    useEffect(() => {
+      const timer = setTimeout(() => {
+        navigation.goBack();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }, []);
+
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32 }}>
+        <Text style={{
+          fontFamily: fonts.heading,
+          fontSize: 32,
+          color: theme.colors.text.primary,
+          textAlign: "center",
+          marginBottom: 16,
+        }}>
+          scheduled for {dateLabel.split(",")[0]}.
+        </Text>
+        <Text style={{
+          fontFamily: fonts.body,
+          fontSize: 16,
+          color: theme.colors.text.secondary,
+          textAlign: "center",
+        }}>
+          we'll remind you that morning
+        </Text>
+      </View>
+    );
+  };
+
+  // ================================================================
+  //  MAIN RENDER
+  // ================================================================
   const renderCurrentStep = () => {
     switch (step) {
-      case 1: return renderStep1();
-      case 2: return renderStep2();
-      case 3: return renderStep3();
-      case 4: return renderStep4();
-      case 5: return renderStep5();
-      default: return renderStep1();
+      case 1: return renderQ1();
+      case 2: return renderQ2();
+      case 3: return renderQ3();
+      case 4: return renderQ4();
+      case 5: return renderQ5();
+      case 6: return renderScheduleConfirmation();
+      default: return renderQ1();
     }
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#FAF8F4" }}>
-      {/* Close button */}
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg.primary }} {...panResponder.panHandlers}>
+      {/* Close */}
       <TouchableOpacity
         onPress={() => navigation.goBack()}
         activeOpacity={0.7}
         style={{ position: "absolute", top: 56, left: 24, zIndex: 10 }}
       >
-        <Text style={{ fontFamily: "DMSans-Regular", fontSize: 24, color: "#A8A29E" }}>{"\u2715"}</Text>
+        <Text style={{ fontFamily: fonts.body, fontSize: 24, color: theme.colors.text.muted }}>{"\u2715"}</Text>
       </TouchableOpacity>
 
-      <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+      {/* Dots */}
+      {renderDots()}
+
+      {/* Slide container */}
+      <Animated.View style={{ flex: 1, transform: [{ translateX: slideAnim }] }}>
         {renderCurrentStep()}
       </Animated.View>
     </SafeAreaView>

@@ -300,19 +300,17 @@ export function CalendarScreen() {
   };
 
   const handleTaskPress = (task: Task) => {
-    if (
+    if (task.status === "active") {
+      navigation.navigate("ActiveTask", { taskId: task.id });
+    } else if (task.status === "completed") {
+      navigation.navigate("Reflect", { taskId: task.id });
+    } else if (
       (task.status === "todo" || task.status === "late") &&
       !task.aiAnalysis
     ) {
       navigation.navigate("AddTask", { taskId: task.id });
-    } else if (
-      task.status === "todo" ||
-      task.status === "late" ||
-      task.status === "active"
-    ) {
-      navigation.navigate("ActiveTask", { taskId: task.id });
-    } else if (task.status === "completed") {
-      navigation.navigate("Reflect", { taskId: task.id });
+    } else {
+      navigation.navigate("TaskDetail", { taskId: task.id });
     }
   };
 

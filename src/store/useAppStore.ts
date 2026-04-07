@@ -20,6 +20,43 @@ export type ProofStrictness = "strict" | "normal" | "relaxed";
 export type Priority = "low" | "medium" | "high" | "urgent";
 export type StrictnessLevel = "flexible" | "standard" | "deep_focus" | "hardcore";
 
+// ── Three Horizon System ─────────────────────────────────────────────
+export type Horizon = "today" | "soon" | "someday";
+
+export interface TaskContext {
+  id: string;
+  name: string;
+  color: string; // hex color for the dot
+  isDefault?: boolean; // "life" context is the default
+}
+
+/**
+ * The three invisible task archetypes. Never shown to user.
+ * - producer: user creates something submittable (essay, code, design)
+ * - doer: user physically does something (laundry, gym, cleaning)
+ * - handler: user handles something administrative (call mom, pay bill)
+ */
+export type TaskArchetype = "producer" | "doer" | "handler";
+
+export interface ClassificationResult {
+  archetype: TaskArchetype;
+  outputType: "essay" | "code" | "design" | "other" | null;
+  needsGuidelines: boolean;
+  suggestedWorkTools: string[] | null;
+  isMultiStep: boolean;
+  steps: Array<{
+    name: string;
+    type: "active" | "wait";
+    estimatedMinutes: number;
+    photoPrompt: string | null;
+    waitReason: string | null;
+  }> | null;
+  estimatedMinutes: number;
+  blockingLevel: 0 | 1 | 2 | 3;
+  proofRequired: boolean;
+  suggestedSessions: number;
+}
+
 export interface Subject {
   id: string;
   name: string;
@@ -135,6 +172,10 @@ export interface Task {
   blockedApps: string[];
   proofType: ProofType;
   status: TaskStatus;
+  // Archetype system — auto-set by AI, never manually chosen
+  archetype?: TaskArchetype;
+  blockingLevel?: 0 | 1 | 2 | 3;
+  outputType?: "essay" | "code" | "design" | "other";
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -189,6 +230,11 @@ export interface Task {
   /** IDs of scheduled expo-notifications for this task's wait phases */
   scheduledNotificationIds?: string[];
   cooldownServed?: boolean;
+  // ── Three Horizon System ─────────────────────────────
+  horizon?: Horizon;
+  contextId?: string;
+  /** Inline subtasks for the horizon list (different from multi-step subtasks) */
+  listSubtasks?: Array<{ id: string; text: string; done: boolean }>;
 }
 
 export interface PlannedSession {
@@ -221,8 +267,22 @@ export interface WeeklyInsight {
   totalFocusMinutes: number;
 }
 
+export interface CapturedTask {
+  id: string;
+  text: string;
+  createdAt: string;
+  doneAt?: string;        // set when marked done without full flow
+  preAnalysis?: {         // AI silently fills this after 2+ hours
+    archetype?: string;
+    estimatedMinutes?: number;
+    isMultiStep?: boolean;
+  };
+  hasDeadlineHint?: boolean; // AI detected possible deadline
+}
+
 interface AppState {
   tasks: Task[];
+  capturedTasks: CapturedTask[];
   blockedApps: string[];
   currentTaskId: string | null;
   streakDays: number;
@@ -244,6 +304,25 @@ interface AppState {
   weeklyAbandonCount: number;
   lastAbandonWeekStart: string;
   cooldownEndsAt: string | null;
+
+  // ── Three Horizon System ─────────────────────────────
+  contexts: TaskContext[];
+  dailyDealDate: string | null; // ISO date of last completed daily deal
+  dailyDealCompleted: boolean;
+
+  addContext: (ctx: TaskContext) => void;
+  updateContext: (id: string, updates: Partial<TaskContext>) => void;
+  removeContext: (id: string) => void;
+  moveTaskToHorizon: (taskId: string, horizon: Horizon) => void;
+  setDailyDealCompleted: (date: string) => void;
+  toggleListSubtask: (taskId: string, subtaskId: string) => void;
+  addListSubtask: (taskId: string, text: string) => void;
+  removeListSubtask: (taskId: string, subtaskId: string) => void;
+
+  addCapturedTask: (text: string) => void;
+  removeCapturedTask: (id: string) => void;
+  markCapturedTaskDone: (id: string) => void;
+  updateCapturedTask: (id: string, updates: Partial<CapturedTask>) => void;
 
   addJournalEntry: (entry: JournalEntry) => void;
   updateJournalEntry: (id: string, updates: Partial<JournalEntry>) => void;
@@ -289,6 +368,8 @@ const seedTasks: Task[] = [
     blockedApps: ["Instagram", "TikTok", "YouTube"],
     proofType: "photo",
     status: "completed",
+    archetype: "producer",
+    blockingLevel: 3,
     createdAt: new Date(Date.now() - 86400000).toISOString(),
     startedAt: new Date(Date.now() - 86400000 + 3600000).toISOString(),
     completedAt: new Date(Date.now() - 86400000 + 6600000).toISOString(),
@@ -332,6 +413,8 @@ const seedTasks: Task[] = [
     blockedApps: ["Instagram", "TikTok", "Reddit", "Discord"],
     proofType: "written",
     status: "todo",
+    archetype: "producer",
+    blockingLevel: 3,
     createdAt: new Date().toISOString(),
     startedAt: null,
     completedAt: null,
@@ -351,6 +434,9 @@ const seedTasks: Task[] = [
     blockedApps: ["Instagram", "Snapchat", "X/Twitter"],
     proofType: "written",
     status: "late",
+    archetype: "producer",
+    blockingLevel: 3,
+    outputType: "essay",
     createdAt: new Date(Date.now() - 7200000).toISOString(),
     startedAt: null,
     completedAt: null,
@@ -387,6 +473,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       tasks: seedTasks,
+      capturedTasks: [],
       blockedApps: [
         "Instagram",
         "TikTok",
@@ -416,6 +503,116 @@ export const useAppStore = create<AppState>()(
       weeklyAbandonCount: 0,
       lastAbandonWeekStart: getMondayISO(new Date()),
       cooldownEndsAt: null,
+
+      // ── Three Horizon System ─────────────────────────────
+      contexts: [
+        { id: "ctx-life", name: "life", color: "#78716C", isDefault: true },
+      ],
+      dailyDealDate: null,
+      dailyDealCompleted: false,
+
+      addContext: (ctx) =>
+        set((s) => ({ contexts: [...s.contexts, ctx] })),
+
+      updateContext: (id, updates) =>
+        set((s) => ({
+          contexts: s.contexts.map((c) =>
+            c.id === id ? { ...c, ...updates } : c
+          ),
+        })),
+
+      removeContext: (id) =>
+        set((s) => ({
+          contexts: s.contexts.filter((c) => c.id !== id),
+        })),
+
+      moveTaskToHorizon: (taskId, horizon) =>
+        set((s) => ({
+          tasks: s.tasks.map((t) =>
+            t.id === taskId ? { ...t, horizon } : t
+          ),
+        })),
+
+      setDailyDealCompleted: (date) =>
+        set({ dailyDealDate: date, dailyDealCompleted: true }),
+
+      toggleListSubtask: (taskId, subtaskId) =>
+        set((s) => ({
+          tasks: s.tasks.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  listSubtasks: (t.listSubtasks ?? []).map((st) =>
+                    st.id === subtaskId ? { ...st, done: !st.done } : st
+                  ),
+                }
+              : t
+          ),
+        })),
+
+      addListSubtask: (taskId, text) =>
+        set((s) => ({
+          tasks: s.tasks.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  listSubtasks: [
+                    ...(t.listSubtasks ?? []),
+                    {
+                      id: `ls-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                      text,
+                      done: false,
+                    },
+                  ],
+                }
+              : t
+          ),
+        })),
+
+      removeListSubtask: (taskId, subtaskId) =>
+        set((s) => ({
+          tasks: s.tasks.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  listSubtasks: (t.listSubtasks ?? []).filter(
+                    (st) => st.id !== subtaskId
+                  ),
+                }
+              : t
+          ),
+        })),
+
+      addCapturedTask: (text) =>
+        set((s) => ({
+          capturedTasks: [
+            {
+              id: `cap-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              text: text.trim(),
+              createdAt: new Date().toISOString(),
+            },
+            ...s.capturedTasks,
+          ],
+        })),
+
+      removeCapturedTask: (id) =>
+        set((s) => ({
+          capturedTasks: s.capturedTasks.filter((t) => t.id !== id),
+        })),
+
+      markCapturedTaskDone: (id) =>
+        set((s) => ({
+          capturedTasks: s.capturedTasks.map((t) =>
+            t.id === id ? { ...t, doneAt: new Date().toISOString() } : t
+          ),
+        })),
+
+      updateCapturedTask: (id, updates) =>
+        set((s) => ({
+          capturedTasks: s.capturedTasks.map((t) =>
+            t.id === id ? { ...t, ...updates } : t
+          ),
+        })),
 
       addJournalEntry: (entry) =>
         set((s) => ({ journalEntries: [...s.journalEntries, entry] })),

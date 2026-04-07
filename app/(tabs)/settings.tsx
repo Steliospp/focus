@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,9 +7,14 @@ import {
   Switch,
   Pressable,
   Alert,
+  Animated,
+  Platform,
+  Modal,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Colors, Fonts, Spacing, Radii, Shadows } from '@/constants/theme';
 import {
   getSettings,
@@ -19,6 +24,7 @@ import {
   SettingsData,
 } from '@/services/storage';
 import { useStreak } from '@/hooks/useStreak';
+import { NotificationService } from '@/services/notifications';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -67,9 +73,7 @@ function TappableRow({ label, icon, onPress, rightText, danger }: TappableRowPro
             color={danger ? Colors.danger : Colors.textSecondary}
           />
         )}
-        <Text
-          style={[styles.rowLabel, danger && { color: Colors.danger }]}
-        >
+        <Text style={[styles.rowLabel, danger && { color: Colors.danger }]}>
           {label}
         </Text>
       </View>
@@ -89,6 +93,44 @@ function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
 }
 
+// Toast component
+function Toast({ message, visible }: { message: string; visible: boolean }) {
+  const translateY = useRef(new Animated.Value(100)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(translateY, { toValue: 0, duration: 300, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      ]).start();
+
+      const timer = setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(translateY, { toValue: 100, duration: 300, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+        ]).start();
+      }, 2000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <Animated.View style={[styles.toast, { transform: [{ translateY }], opacity }]}>
+      <Text style={styles.toastText}>{message}</Text>
+    </Animated.View>
+  );
+}
+
+function formatTime(hour: number, minute: number): string {
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const h = hour % 12 || 12;
+  return `${h}:${String(minute).padStart(2, '0')} ${period}`;
+}
+
 const PLAN_LABELS: Record<string, string> = {
   free: 'Free',
   pro: 'Pro',
@@ -98,10 +140,16 @@ const PLAN_LABELS: Record<string, string> = {
 export default function SettingsScreen() {
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [storageUsed, setStorageUsed] = useState('--');
+  const [nudgeHour, setNudgeHour] = useState(10);
+  const [nudgeMinute, setNudgeMinute] = useState(0);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [showToast, setShowToast] = useState(false);
   const { streak, devSetStreak, devResetStreak } = useStreak();
 
   useEffect(() => {
     loadSettings();
+    loadNudgeTime();
   }, []);
 
   const loadSettings = async () => {
@@ -109,6 +157,19 @@ export default function SettingsScreen() {
     setSettings(s);
     const used = await getStorageUsed();
     setStorageUsed(used);
+  };
+
+  const loadNudgeTime = async () => {
+    const time = await NotificationService.getNudgeTime();
+    setNudgeHour(time.hour);
+    setNudgeMinute(time.minute);
+  };
+
+  const showToastMessage = (msg: string) => {
+    setToastMessage(msg);
+    setShowToast(false);
+    // Reset to trigger useEffect
+    setTimeout(() => setShowToast(true), 50);
   };
 
   const updateSetting = useCallback(
@@ -120,6 +181,73 @@ export default function SettingsScreen() {
     },
     [settings],
   );
+
+  const handleDailyNudgeToggle = async (enabled: boolean) => {
+    await updateSetting('dailyNudge', enabled);
+    if (enabled) {
+      const granted = await NotificationService.requestPermissions();
+      if (!granted) {
+        Alert.alert(
+          'Notifications Disabled',
+          'Enable notifications in Settings to receive your daily nudge.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ],
+        );
+        await updateSetting('dailyNudge', false);
+        return;
+      }
+      await NotificationService.scheduleDailyNudge(nudgeHour, nudgeMinute);
+      showToastMessage(`Nudge set for ${formatTime(nudgeHour, nudgeMinute)}`);
+    } else {
+      await NotificationService.cancelDailyNudge();
+    }
+  };
+
+  const handleReminderToggle = async (enabled: boolean) => {
+    await updateSetting('reminderIfNoLog', enabled);
+    if (enabled) {
+      const granted = await NotificationService.requestPermissions();
+      if (!granted) {
+        Alert.alert(
+          'Notifications Disabled',
+          'Enable notifications in Settings to receive reminders.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ],
+        );
+        await updateSetting('reminderIfNoLog', false);
+        return;
+      }
+      await NotificationService.scheduleEveningReminder();
+      if (streak.currentStreak >= 3) {
+        await NotificationService.scheduleStreakReminder(streak.currentStreak);
+      }
+    } else {
+      await NotificationService.cancelEveningReminder();
+      await NotificationService.cancelStreakReminder();
+    }
+  };
+
+  const handleTimeChange = async (_: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowTimePicker(false);
+    }
+    if (selectedDate) {
+      const hour = selectedDate.getHours();
+      const minute = selectedDate.getMinutes();
+      setNudgeHour(hour);
+      setNudgeMinute(minute);
+
+      if (settings?.dailyNudge) {
+        await NotificationService.scheduleDailyNudge(hour, minute);
+      }
+      await updateSetting('nudgeTime', formatTime(hour, minute));
+      showToastMessage(`Nudge set for ${formatTime(hour, minute)}`);
+    }
+  };
 
   const handleDeleteAllData = () => {
     Alert.alert(
@@ -150,7 +278,9 @@ export default function SettingsScreen() {
 
   if (!settings) return null;
 
-  const initials = 'YA'; // Placeholder
+  const initials = 'YA';
+  const pickerDate = new Date();
+  pickerDate.setHours(nudgeHour, nudgeMinute, 0, 0);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -198,23 +328,21 @@ export default function SettingsScreen() {
           <ToggleRow
             label="Daily nudge"
             value={settings.dailyNudge}
-            onValueChange={(v) => updateSetting('dailyNudge', v)}
+            onValueChange={handleDailyNudgeToggle}
             icon="notifications-outline"
           />
           <View style={styles.separator} />
           <TappableRow
             label="Nudge time"
             icon="time-outline"
-            rightText={settings.nudgeTime}
-            onPress={() => {
-              Alert.alert('Nudge Time', 'Time picker coming soon.');
-            }}
+            rightText={formatTime(nudgeHour, nudgeMinute)}
+            onPress={() => setShowTimePicker(true)}
           />
           <View style={styles.separator} />
           <ToggleRow
             label="Remind if no log"
             value={settings.reminderIfNoLog}
-            onValueChange={(v) => updateSetting('reminderIfNoLog', v)}
+            onValueChange={handleReminderToggle}
             icon="alarm-outline"
           />
         </View>
@@ -381,6 +509,45 @@ export default function SettingsScreen() {
           <Text style={styles.appInfoText}>Made with care.</Text>
         </View>
       </ScrollView>
+
+      {/* Time Picker Modal (iOS) */}
+      {Platform.OS === 'ios' && (
+        <Modal visible={showTimePicker} transparent animationType="slide">
+          <View style={styles.timePickerOverlay}>
+            <View style={styles.timePickerContainer}>
+              <View style={styles.timePickerHeader}>
+                <Pressable onPress={() => setShowTimePicker(false)}>
+                  <Text style={styles.timePickerCancel}>Cancel</Text>
+                </Pressable>
+                <Text style={styles.timePickerTitle}>Nudge Time</Text>
+                <Pressable onPress={() => setShowTimePicker(false)}>
+                  <Text style={styles.timePickerDone}>Done</Text>
+                </Pressable>
+              </View>
+              <DateTimePicker
+                value={pickerDate}
+                mode="time"
+                display="spinner"
+                onChange={handleTimeChange}
+                textColor={Colors.textPrimary}
+                style={styles.timePicker}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Time Picker (Android) */}
+      {Platform.OS === 'android' && showTimePicker && (
+        <DateTimePicker
+          value={pickerDate}
+          mode="time"
+          onChange={handleTimeChange}
+        />
+      )}
+
+      {/* Toast */}
+      <Toast message={toastMessage} visible={showToast} />
     </SafeAreaView>
   );
 }
@@ -396,7 +563,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 120,
   },
-  // Profile
   profileSection: {
     alignItems: 'center',
     paddingTop: Spacing.xl,
@@ -421,7 +587,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: Colors.textPrimary,
   },
-  // Sections
   sectionHeader: {
     fontFamily: Fonts.sansMedium,
     fontSize: 13,
@@ -438,7 +603,6 @@ const styles = StyleSheet.create({
     borderRadius: Radii.md,
     ...Shadows.card,
   },
-  // Rows
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -473,7 +637,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.border,
     marginLeft: Spacing.md + 20 + Spacing.sm + 2,
   },
-  // Plan badge
   planBadge: {
     backgroundColor: Colors.primaryLightest,
     borderRadius: Radii.full,
@@ -489,7 +652,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: Spacing.sm,
   },
-  // App info
   appInfo: {
     alignItems: 'center',
     paddingTop: Spacing.xl,
@@ -500,5 +662,61 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sansLight,
     fontSize: 13,
     color: Colors.textMuted,
+  },
+  // Time picker
+  timePickerOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  timePickerContainer: {
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: Radii.lg,
+    borderTopRightRadius: Radii.lg,
+    paddingBottom: 34,
+  },
+  timePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
+  },
+  timePickerTitle: {
+    fontFamily: Fonts.sansMedium,
+    fontSize: 17,
+    color: Colors.textPrimary,
+  },
+  timePickerCancel: {
+    fontFamily: Fonts.sansRegular,
+    fontSize: 16,
+    color: Colors.textMuted,
+  },
+  timePickerDone: {
+    fontFamily: Fonts.sansMedium,
+    fontSize: 16,
+    color: Colors.primary,
+  },
+  timePicker: {
+    height: 200,
+  },
+  // Toast
+  toast: {
+    position: 'absolute',
+    bottom: 100,
+    left: Spacing.lg,
+    right: Spacing.lg,
+    backgroundColor: Colors.textPrimary,
+    borderRadius: Radii.md,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md,
+    alignItems: 'center',
+  },
+  toastText: {
+    fontFamily: Fonts.sansMedium,
+    fontSize: 15,
+    color: '#FFFFFF',
   },
 });

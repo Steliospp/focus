@@ -1,5 +1,12 @@
-import React, { useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Alert, TextInput } from "react-native";
+import React, { useRef, useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  TextInput,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -19,7 +26,8 @@ function getGreeting(
   pendingCount: number,
   completedCount: number,
   totalMinutes: number,
-  hasLateTasks: boolean
+  hasLateTasks: boolean,
+  capturedCount: number,
 ): { title: string; emoji: string; subtitle: string } {
   const h = new Date().getHours();
   const allDone = pendingCount === 0 && completedCount > 0;
@@ -59,19 +67,37 @@ function getGreeting(
   const timeGreeting =
     h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
 
+  const listNote =
+    capturedCount > 0 ? `\n${capturedCount} thing${capturedCount === 1 ? "" : "s"} on your list` : "";
+
   return {
     title: `${timeGreeting}, ${userName}`,
     emoji: "\u{1F440}",
     subtitle:
       pendingCount > 0
-        ? `${pendingCount} thing${pendingCount === 1 ? "" : "s"} waiting on you`
-        : "Nothing scheduled yet. Enjoy the calm.",
+        ? `${pendingCount} thing${pendingCount === 1 ? "" : "s"} waiting on you${listNote}`
+        : capturedCount > 0
+          ? `${capturedCount} thing${capturedCount === 1 ? "" : "s"} on your list`
+          : "Nothing scheduled yet. Enjoy the calm.",
   };
 }
 
 export function HomeScreen() {
   const navigation = useNavigation<Nav>();
-  const { tasks, userName, streakDays, totalFocusMinutes, updateTask, removeTask, addTask, setCurrentTask } = useAppStore();
+  const {
+    tasks,
+    capturedTasks,
+    userName,
+    streakDays,
+    totalFocusMinutes,
+    updateTask,
+    removeTask,
+    addTask,
+    setCurrentTask,
+    addCapturedTask,
+    removeCapturedTask,
+    markCapturedTaskDone,
+  } = useAppStore();
   const {
     getUpcomingDeadlines,
     getMissedSessions,
@@ -82,8 +108,28 @@ export function HomeScreen() {
 
   useRecurringTasks();
 
+  const [captureText, setCaptureText] = useState("");
+  const [captureFocused, setCaptureFocused] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [dismissedParentIds, setDismissedParentIds] = useState<string[]>([]);
+  const inputRef = useRef<TextInput>(null);
+
+  const handleCapture = () => {
+    const text = captureText.trim();
+    if (!text) return;
+    addCapturedTask(text);
+    setCaptureText("");
+    // Keep keyboard open for rapid entry
+  };
+
+  // Active (not done) captured tasks
+  const activeCaptured = capturedTasks.filter((t) => !t.doneAt);
+  // Recently done captured tasks (last 24h, for "done today" count)
+  const todayStr = new Date().toISOString().split("T")[0];
+  const doneCapturedToday = capturedTasks.filter(
+    (t) => t.doneAt && t.doneAt.split("T")[0] === todayStr
+  );
 
   // Group missed sessions by parent task
   const missedSessions = getMissedSessions();
@@ -111,7 +157,6 @@ export function HomeScreen() {
   const threeDaysFromNow = new Date();
   threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
   threeDaysFromNow.setHours(23, 59, 59, 999);
-  const todayStr = new Date().toISOString().split("T")[0];
 
   const backlogTasks = tasks.filter((t) => t.status === "backlog");
   const [backlogExpanded, setBacklogExpanded] = useState(false);
@@ -137,7 +182,6 @@ export function HomeScreen() {
     return true;
   });
 
-  // Sort pending tasks by priority: urgent > high > medium > low > undefined
   const priorityOrder: Record<string, number> = {
     urgent: 0,
     high: 1,
@@ -152,6 +196,7 @@ export function HomeScreen() {
 
   const completedTasks = tasks.filter((t) => t.status === "completed");
   const completedCount = completedTasks.length;
+  const totalDoneToday = completedCount + doneCapturedToday.length;
   const hasLateTasks = pendingTasks.some((t) => t.status === "late");
 
   const {
@@ -163,7 +208,8 @@ export function HomeScreen() {
     pendingTasks.length,
     completedCount,
     totalFocusMinutes,
-    hasLateTasks
+    hasLateTasks,
+    activeCaptured.length,
   );
 
   const orbMood =
@@ -173,35 +219,65 @@ export function HomeScreen() {
         ? "warning"
         : "default";
 
-  const handleTaskPress = (task: (typeof tasks)[0]) => {
-    if (
-      (task.status === "todo" || task.status === "late") &&
-      !task.aiAnalysis
-    ) {
-      navigation.navigate("AddTask", { taskId: task.id });
-    } else if (
-      task.status === "todo" ||
-      task.status === "late" ||
-      task.status === "active"
-    ) {
+  // Status shown purely through text color
+  const getTaskNameColor = (status: string) => {
+    if (status === "active") return "#D97706";  // amber
+    if (status === "late") return "#EF4444";     // red
+    if (status === "completed") return "#A8A29E"; // gray
+    return "#1C1917";                             // dark (todo)
+  };
+
+  const handleTaskTap = (task: (typeof tasks)[0]) => {
+    if (task.status === "active") {
+      // Active tasks go straight to session
       navigation.navigate("ActiveTask", { taskId: task.id });
-    } else if (task.status === "completed") {
+      return;
+    }
+    if (task.status === "completed") {
       navigation.navigate("Reflect", { taskId: task.id });
+      return;
+    }
+    // Toggle expand for todo/late tasks
+    setExpandedTaskId((prev) => (prev === task.id ? null : task.id));
+  };
+
+  const handleDoItNow = (task: (typeof tasks)[0]) => {
+    if (!task.aiAnalysis) {
+      navigation.navigate("AddTask", { taskId: task.id });
+    } else {
+      navigation.navigate("ActiveTask", { taskId: task.id });
     }
   };
 
-  const getStatusDotColor = (status: string) => {
-    if (status === "todo") return "#78716C";
-    if (status === "active") return "#F59E0B";
-    if (status === "completed") return "#84CC16";
-    if (status === "late") return "#EF4444";
-    return "#A8A29E";
-  };
-
-  const getStatusTextColor = (status: string) => {
-    if (status === "late") return "#EF4444";
-    if (status === "active") return "#F59E0B";
-    return "#78716C";
+  const handleCapturedAction = (item: typeof activeCaptured[0]) => {
+    Alert.alert(item.text, undefined, [
+      {
+        text: "do it now \u2192",
+        onPress: () => {
+          removeCapturedTask(item.id);
+          navigation.navigate("AddTask", { prefilledName: item.text });
+        },
+      },
+      {
+        text: "schedule it \u2192",
+        onPress: () => {
+          removeCapturedTask(item.id);
+          navigation.navigate("AddTask", { prefilledName: item.text, prefilledDate: undefined });
+        },
+      },
+      {
+        text: "it's done \u2713",
+        onPress: () => {
+          markCapturedTaskDone(item.id);
+        },
+      },
+      {
+        text: "delete",
+        style: "destructive",
+        onPress: () => removeCapturedTask(item.id),
+      },
+      { text: "cancel", style: "cancel" },
+    ]);
   };
 
   return (
@@ -210,7 +286,38 @@ export function HomeScreen() {
         <ScrollView
           style={{ flex: 1, paddingHorizontal: 20 }}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
+          {/* ── CAPTURE INPUT ── */}
+          <View
+            style={{
+              marginTop: 12,
+              height: 64,
+              justifyContent: "center",
+              borderBottomWidth: 1.5,
+              borderBottomColor: captureFocused ? "#D97706" : "#E7E5E4",
+            }}
+          >
+            <TextInput
+              ref={inputRef}
+              value={captureText}
+              onChangeText={setCaptureText}
+              onSubmitEditing={handleCapture}
+              onFocus={() => setCaptureFocused(true)}
+              onBlur={() => setCaptureFocused(false)}
+              placeholder="what's on your mind..."
+              placeholderTextColor="#A8A29E"
+              returnKeyType="done"
+              blurOnSubmit={false}
+              style={{
+                fontFamily: fonts.heading,
+                fontSize: 22,
+                color: captureText.length > 0 ? "#1C1917" : "#A8A29E",
+                paddingHorizontal: 4,
+              }}
+            />
+          </View>
+
           {/* Missed session banners */}
           {missedBanners.map((b) => (
             <MissedSessionBanner
@@ -230,8 +337,8 @@ export function HomeScreen() {
             />
           ))}
 
-          {/* Greeting hero */}
-          <View style={{ paddingTop: 40, paddingBottom: 8, alignItems: "center" }}>
+          {/* ── GREETING ── */}
+          <View style={{ paddingTop: 32, paddingBottom: 8, alignItems: "center" }}>
             <Text
               style={{
                 fontFamily: fonts.heading,
@@ -267,7 +374,7 @@ export function HomeScreen() {
             </Text>
           </View>
 
-          {/* MascotOrb */}
+          {/* ── ORB ── */}
           <View style={{ alignItems: "center", marginVertical: 24 }}>
             <MascotOrb mood={orbMood} size={80} />
           </View>
@@ -287,7 +394,7 @@ export function HomeScreen() {
             </Text>
           )}
 
-          {/* Today section header */}
+          {/* ── TODAY ── */}
           <View style={{ marginBottom: 4 }}>
             <Text
               style={{
@@ -307,7 +414,6 @@ export function HomeScreen() {
             />
           </View>
 
-          {/* Task list */}
           {pendingTasks.length === 0 && completedCount === 0 && (
             <Text
               style={{
@@ -334,117 +440,58 @@ export function HomeScreen() {
           )}
 
           {pendingTasks.map((task) => (
-            <TouchableOpacity
-              key={task.id}
-              activeOpacity={0.6}
-              onPress={() => handleTaskPress(task)}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                paddingVertical: 16,
-                ...(task.status === "late"
-                  ? {
-                      borderLeftWidth: 3,
-                      borderLeftColor: "#EF4444",
-                      paddingLeft: 12,
-                    }
-                  : {}),
-              }}
-            >
-              <View
+            <View key={task.id}>
+              <TouchableOpacity
+                activeOpacity={0.6}
+                onPress={() => handleTaskTap(task)}
                 style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: getStatusDotColor(task.status),
-                  marginRight: 14,
+                  height: 56,
+                  justifyContent: "center",
                 }}
-              />
-              <View style={{ flex: 1 }}>
+              >
                 <Text
                   style={{
                     fontFamily: fonts.bodyMedium,
-                    fontSize: 16,
-                    color: "#1C1917",
+                    fontSize: 17,
+                    color: getTaskNameColor(task.status),
+                    ...(task.status === "late" ? {} : {}),
                   }}
                   numberOfLines={1}
                 >
                   {task.name}
-                </Text>
-              </View>
-              {task.estimatedMinutes > 0 && (
-                <Text
-                  style={{
-                    fontFamily: fonts.body,
-                    fontSize: 14,
-                    color: getStatusTextColor(task.status),
-                    marginLeft: 12,
-                  }}
-                >
-                  {task.estimatedMinutes} min
-                </Text>
-              )}
-            </TouchableOpacity>
-          ))}
-
-          {/* Completed section */}
-          {completedCount > 0 && (
-            <View style={{ marginTop: 16 }}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => setCompletedExpanded(!completedExpanded)}
-                style={{ paddingVertical: 10 }}
-              >
-                <Text
-                  style={{
-                    fontFamily: fonts.heading,
-                    fontSize: 16,
-                    color: "#A8A29E",
-                  }}
-                >
-                  Done today ({completedCount})
+                  {task.status === "late" && (
+                    <Text style={{ fontFamily: fonts.body, fontSize: 14, color: "#EF4444" }}>
+                      {"  "}late
+                    </Text>
+                  )}
                 </Text>
               </TouchableOpacity>
 
-              {completedExpanded &&
-                completedTasks.map((task) => (
+              {/* Expanded inline actions */}
+              {expandedTaskId === task.id && (
+                <View style={{ paddingBottom: 12, paddingLeft: 4 }}>
                   <TouchableOpacity
-                    key={task.id}
                     activeOpacity={0.6}
-                    onPress={() => handleTaskPress(task)}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      paddingVertical: 16,
-                      opacity: 0.5,
-                    }}
+                    onPress={() => handleDoItNow(task)}
+                    style={{ paddingVertical: 10 }}
                   >
-                    <View
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 4,
-                        backgroundColor: "#84CC16",
-                        marginRight: 14,
-                      }}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={{
-                          fontFamily: fonts.bodyMedium,
-                          fontSize: 16,
-                          color: "#1C1917",
-                          textDecorationLine: "line-through",
-                        }}
-                        numberOfLines={1}
-                      >
-                        {task.name}
-                      </Text>
-                    </View>
+                    <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 15, color: "#D97706" }}>
+                      do it now {"\u2192"}
+                    </Text>
                   </TouchableOpacity>
-                ))}
+                  <TouchableOpacity
+                    activeOpacity={0.6}
+                    onPress={() => navigation.navigate("AddTask", { prefilledName: task.name })}
+                    style={{ paddingVertical: 10 }}
+                  >
+                    <Text style={{ fontFamily: fonts.body, fontSize: 15, color: "#78716C" }}>
+                      reschedule
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
-          )}
+          ))}
 
           {/* Add something */}
           <TouchableOpacity
@@ -463,7 +510,56 @@ export function HomeScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Someday / Backlog */}
+          {/* ── YOUR LIST (captured tasks) ── */}
+          {activeCaptured.length > 0 && (
+            <View style={{ marginTop: 20 }}>
+              <View style={{ marginBottom: 4 }}>
+                <Text
+                  style={{
+                    fontFamily: fonts.heading,
+                    fontSize: 18,
+                    color: "#A8A29E",
+                    marginBottom: 8,
+                  }}
+                >
+                  your list
+                </Text>
+                <View
+                  style={{
+                    height: 1,
+                    backgroundColor: "#E7E5E4",
+                  }}
+                />
+              </View>
+
+              {activeCaptured.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  activeOpacity={0.6}
+                  onLongPress={() => handleCapturedAction(item)}
+                  delayLongPress={300}
+                  style={{
+                    paddingVertical: 14,
+                    paddingLeft: 4,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: fonts.body,
+                      fontSize: 16,
+                      color: "#1C1917",
+                      lineHeight: 22,
+                    }}
+                    numberOfLines={2}
+                  >
+                    {item.text}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* ── SOMEDAY / BACKLOG ── */}
           {backlogTasks.length > 0 && (
             <View style={{ marginTop: 16 }}>
               <TouchableOpacity
@@ -500,15 +596,9 @@ export function HomeScreen() {
                         {
                           text: "do it now",
                           onPress: () => {
-                            updateTask(task.id, {
-                              status: "active",
-                              estimatedMinutes: 30,
-                              proofType: "honor",
-                              blockedApps: [],
-                              startedAt: new Date().toISOString(),
-                            });
-                            setCurrentTask(task.id);
-                            navigation.navigate("ActiveTask", { taskId: task.id });
+                            // Route through AddTask so AI classifies the task
+                            removeTask(task.id);
+                            navigation.navigate("AddTask", { prefilledName: task.name });
                           },
                         },
                         {
@@ -570,7 +660,70 @@ export function HomeScreen() {
             </View>
           )}
 
-          {/* Upcoming Deadlines */}
+          {/* ── DONE TODAY ── */}
+          {totalDoneToday > 0 && (
+            <View style={{ marginTop: 16 }}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setCompletedExpanded(!completedExpanded)}
+                style={{ paddingVertical: 10 }}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.heading,
+                    fontSize: 16,
+                    color: "#A8A29E",
+                  }}
+                >
+                  done today ({totalDoneToday})
+                </Text>
+              </TouchableOpacity>
+
+              {completedExpanded && (
+                <>
+                  {completedTasks.map((task) => (
+                    <View
+                      key={task.id}
+                      style={{ height: 48, justifyContent: "center" }}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: fonts.bodyMedium,
+                          fontSize: 17,
+                          color: "#A8A29E",
+                          textDecorationLine: "line-through",
+                        }}
+                        numberOfLines={1}
+                      >
+                        {task.name}
+                      </Text>
+                    </View>
+                  ))}
+
+                  {doneCapturedToday.map((item) => (
+                    <View
+                      key={item.id}
+                      style={{ height: 48, justifyContent: "center" }}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: fonts.bodyMedium,
+                          fontSize: 17,
+                          color: "#A8A29E",
+                          textDecorationLine: "line-through",
+                        }}
+                        numberOfLines={1}
+                      >
+                        {item.text}
+                      </Text>
+                    </View>
+                  ))}
+                </>
+              )}
+            </View>
+          )}
+
+          {/* ── UPCOMING DEADLINES ── */}
           {upcomingDeadlines.length > 0 && (
             <View style={{ marginTop: 24, marginBottom: 4 }}>
               <Text

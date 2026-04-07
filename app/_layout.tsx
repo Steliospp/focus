@@ -3,6 +3,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
+import * as Notifications from 'expo-notifications';
 import {
   PlayfairDisplay_400Regular_Italic,
   PlayfairDisplay_700Bold_Italic,
@@ -14,6 +15,7 @@ import {
 } from '@expo-google-fonts/dm-sans';
 import { hasOnboarded } from '@/services/storage';
 import { checkStreakIntegrity } from '@/hooks/useStreak';
+import { NotificationService } from '@/services/notifications';
 
 SplashScreen.preventAutoHideAsync();
 SystemUI.setBackgroundColorAsync('#F5F0E8');
@@ -33,9 +35,17 @@ export default function RootLayout() {
 
   useEffect(() => {
     hasOnboarded().then((value) => setOnboarded(value));
-    // Check streak integrity on app launch (resets broken streaks)
     checkStreakIntegrity();
+    NotificationService.rescheduleAll().catch(console.warn);
   }, []);
+
+  // Handle notification tap — navigate to home/record screen
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(() => {
+      router.replace('/(tabs)/');
+    });
+    return () => subscription.remove();
+  }, [router]);
 
   useEffect(() => {
     if (fontsLoaded) {

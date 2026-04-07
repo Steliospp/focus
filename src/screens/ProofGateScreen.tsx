@@ -190,8 +190,16 @@ export function ProofGateScreen() {
   const beforePrompt = allPrompts.find((p) => p.photoTiming === "start" && photoUris[p.id]);
   const beforePhotoUri = beforePrompt ? photoUris[beforePrompt.id] : null;
 
+  const isDoer = task?.archetype === "doer";
+  const isProducer = task?.archetype === "producer";
+
   // Get the main capture prompt text
   const getCapturePromptText = (): string => {
+    // Doer tasks: simple, friendly prompt
+    if (isDoer) {
+      return "Show me you did it \u{1F4AA}";
+    }
+
     const suggestions = task?.aiAnalysis?.proofSuggestions ?? [];
     const endPrompts = allPrompts.filter((p) => p.photoTiming === "end" && p.requiresPhoto);
 
@@ -199,7 +207,6 @@ export function ProofGateScreen() {
       return endPrompts[0].photoPrompt;
     }
     if (suggestions.length > 0) {
-      // Use the last suggestion (usually the "after" one)
       const afterSuggestion = suggestions[suggestions.length - 1];
       return afterSuggestion;
     }
@@ -549,7 +556,7 @@ export function ProofGateScreen() {
                 marginBottom: 24,
               }}
             >
-              Tell me what you did
+              {isProducer ? "Paste what you wrote" : "Tell me what you did"}
             </Text>
 
             <TextInput
@@ -672,49 +679,77 @@ export function ProofGateScreen() {
     </View>
   );
 
-  const renderFailState = () => (
-    <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32 }}>
-      <MascotOrb mood="warning" size={60} />
+  const renderFailState = () => {
+    // Doer tasks: after 1 failed attempt, just pass with low score
+    const doerAutoPass = isDoer && failedAttempts >= 1;
 
-      {/* Specific reason */}
-      <Text
-        style={{
-          fontFamily: "DMSans-Regular",
-          fontSize: 16,
-          color: "#78716C",
-          textAlign: "center",
-          maxWidth: 280,
-          marginTop: 20,
-          lineHeight: 24,
-        }}
-      >
-        {gradeResult?.comment || gradeResult?.improvements?.[0] || "That doesn't quite look right. Can you try again?"}
-      </Text>
+    if (doerAutoPass) {
+      // Auto-pass doer tasks after one retry — they tried, that's enough
+      const autoGrade = {
+        score: 65,
+        passed: true,
+        comment: "We'll take your word for it. Good job getting it done.",
+        strengths: ["Task was attempted"],
+        improvements: [],
+        unlocksApps: true,
+      };
+      // Trigger pass flow
+      setTimeout(() => handleGradeResult(autoGrade), 0);
+      return (
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32 }}>
+          <MascotOrb mood="default" size={60} />
+          <Text style={{ fontFamily: "DMSans-Regular", fontSize: 16, color: "#78716C", marginTop: 20 }}>
+            accepting your proof...
+          </Text>
+        </View>
+      );
+    }
 
-      <TouchableOpacity
-        onPress={handleRetake}
-        activeOpacity={0.7}
-        style={{ paddingVertical: 12, marginTop: 24 }}
-      >
-        <Text style={{ fontFamily: "DMSans-Medium", fontSize: 16, color: "#D97706" }}>
-          {"try again \u2192"}
-        </Text>
-      </TouchableOpacity>
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32 }}>
+        <MascotOrb mood="warning" size={60} />
 
-      {/* Abandon option after 3 failures */}
-      {failedAttempts >= 3 && (
-        <TouchableOpacity
-          onPress={() => setShowAbandonSheet(true)}
-          activeOpacity={0.6}
-          style={{ paddingVertical: 8, marginTop: 8 }}
+        <Text
+          style={{
+            fontFamily: "DMSans-Regular",
+            fontSize: 16,
+            color: "#78716C",
+            textAlign: "center",
+            maxWidth: 280,
+            marginTop: 20,
+            lineHeight: 24,
+          }}
         >
-          <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#EF4444" }}>
-            Abandon task
+          {isDoer
+            ? "Can you show the result a bit more clearly?"
+            : gradeResult?.comment || gradeResult?.improvements?.[0] || "That doesn't quite look right. Can you try again?"}
+        </Text>
+
+        <TouchableOpacity
+          onPress={handleRetake}
+          activeOpacity={0.7}
+          style={{ paddingVertical: 12, marginTop: 24 }}
+        >
+          <Text style={{ fontFamily: "DMSans-Medium", fontSize: 16, color: "#D97706" }}>
+            {"try again \u2192"}
           </Text>
         </TouchableOpacity>
-      )}
-    </View>
-  );
+
+        {/* Abandon option after 3 failures (producer tasks) */}
+        {!isDoer && failedAttempts >= 3 && (
+          <TouchableOpacity
+            onPress={() => setShowAbandonSheet(true)}
+            activeOpacity={0.6}
+            style={{ paddingVertical: 8, marginTop: 8 }}
+          >
+            <Text style={{ fontFamily: "DMSans-Regular", fontSize: 14, color: "#EF4444" }}>
+              Abandon task
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: "#1C1917" }}>

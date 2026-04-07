@@ -1,31 +1,49 @@
 {
   "expo": {
-    "name": "Focus",
-    "slug": "focus",
+    "name": "Log Your Mind",
+    "slug": "log-your-mind",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
+    "scheme": "logyourmind",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0A0A0F"
+      "backgroundColor": "#F5F0E8"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.focus.app"
+      "bundleIdentifier": "com.logyourmind.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Log Your Mind needs your microphone so you can record voice journal entries.",
+        "NSCameraUsageDescription": "Log Your Mind needs camera access for proof photos."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#F5F0E8"
       },
-      "predictiveBackGestureEnabled": false
+      "permissions": [
+        "RECORD_AUDIO"
+      ],
+      "package": "com.logyourmind.app"
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "plugins": [
+      "expo-router",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Log Your Mind needs your microphone so you can record voice journal entries."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "sounds": []
+        }
+      ],
+      "@react-native-community/datetimepicker"
+    ]
   }
 }

@@ -72,6 +72,25 @@ export function ActiveTaskScreen() {
 
   const isStrictMode = task?.strictnessLevel === "deep_focus" || task?.strictnessLevel === "hardcore";
 
+  // Check if there's ANOTHER task in a wait phase (nested session indicator)
+  const waitingParentTask = useAppStore((s) =>
+    s.tasks.find(
+      (t) =>
+        t.id !== taskId &&
+        t.isMultiStep &&
+        t.subtasks?.some((sub) => sub.status === "waiting") &&
+        (t as any).waitPhaseStartedAt,
+    )
+  );
+  const waitingParentSubtask = waitingParentTask?.subtasks?.find((s) => s.status === "waiting");
+  const waitingParentRemaining = (() => {
+    if (!waitingParentTask || !waitingParentSubtask) return 0;
+    const startedAt = (waitingParentTask as any).waitPhaseStartedAt as string;
+    const elapsedMs = Date.now() - new Date(startedAt).getTime();
+    const totalMs = waitingParentSubtask.waitMinutesAfter * 60 * 1000;
+    return Math.max(0, Math.ceil((totalMs - elapsedMs) / 1000 / 60));
+  })();
+
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     toastOpacity.setValue(0);
@@ -178,9 +197,9 @@ export function ActiveTaskScreen() {
     // Clear currentTaskId so apps unlock
     setCurrentTask(null);
 
-    // After 3 seconds, navigate home
+    // After 3 seconds, navigate to WaitPhase screen
     nowWeWaitTimerRef.current = setTimeout(() => {
-      navigation.navigate("Tabs");
+      navigation.navigate("WaitPhase", { taskId });
     }, 3000);
   }, [scheduleWaitNotifications, task?.name, taskId, updateTask, setCurrentTask, navigation]);
 
@@ -190,24 +209,8 @@ export function ActiveTaskScreen() {
 
     const waitStartedAt = (task as any).waitPhaseStartedAt as string | undefined;
     if (currentSubtask?.status === "waiting" && waitStartedAt) {
-      const waitStartMs = new Date(waitStartedAt).getTime();
-      const waitDurationMs = currentSubtask.waitMinutesAfter * 60 * 1000;
-      const now = Date.now();
-      const elapsed = now - waitStartMs;
-
-      if (elapsed < waitDurationMs) {
-        // Wait still ongoing
-        const remainingSec = Math.ceil((waitDurationMs - elapsed) / 1000);
-        setWaitRemainingSeconds(remainingSec);
-        setPhase("waitResume");
-      } else {
-        // Wait has passed — overdue
-        setPhase("waitOverdue");
-        // Cancel notifications since we're here now
-        cancelTaskNotifications();
-        // Lock apps and set as current task
-        setCurrentTask(taskId);
-      }
+      // Redirect to WaitPhase screen for both ongoing and expired waits
+      navigation.navigate("WaitPhase", { taskId });
       return;
     }
 
@@ -240,11 +243,16 @@ export function ActiveTaskScreen() {
     // If no wait, we just stay on active phase showing the current (already advanced) step
   }, [autoAdvanceFromProof, task, isMultiStep, currentSubtask, currentIndex, enterWaitTransition]);
 
+  const isHandler = task?.archetype === "handler";
+
   // Set task as active on mount
   useEffect(() => {
     if (phase === "waitResume" || phase === "nowWeWait") return;
 
-    setCurrentTask(taskId);
+    // Handler tasks don't lock apps
+    if (!isHandler) {
+      setCurrentTask(taskId);
+    }
     updateTask(taskId, {
       status: "active",
       startedAt: task?.startedAt ?? new Date().toISOString(),
@@ -368,7 +376,24 @@ export function ActiveTaskScreen() {
       minutesDelta: delta,
     });
 
-    if (task?.proofType === "honor") {
+    // Where to go after this task completes
+    const returnToWaitPhase = waitingParentTask ? waitingParentTask.id : null;
+
+    // Handler tasks: just mark done, no proof needed
+    if (isHandler || task?.proofType === "honor") {
+      if (isHandler) {
+        updateTask(taskId, {
+          status: "completed",
+          completedAt: new Date().toISOString(),
+        });
+        setCurrentTask(null);
+        if (returnToWaitPhase) {
+          navigation.navigate("WaitPhase", { taskId: returnToWaitPhase });
+        } else {
+          navigation.navigate("Tabs");
+        }
+        return;
+      }
       navigation.navigate("Reflect", { taskId });
     } else {
       navigation.navigate("ProofGate", {
@@ -686,8 +711,28 @@ export function ActiveTaskScreen() {
           </Animated.View>
         )}
 
+        {/* Wait bar — nested session indicator */}
+        {waitingParentTask && waitingParentSubtask && (
+          <View style={{
+            backgroundColor: "rgba(217,119,6,0.15)",
+            paddingVertical: 6,
+            paddingHorizontal: 16,
+            flexDirection: "row",
+            justifyContent: "center",
+            alignItems: "center",
+          }}>
+            <Text style={{
+              fontFamily: "DMSans-Regular",
+              fontSize: 12,
+              color: "#D97706",
+            }}>
+              {"\u23F1"} {waitingParentSubtask.waitReason}: {waitingParentRemaining} min left
+            </Text>
+          </View>
+        )}
+
         {/* MascotOrb — top right */}
-        <View style={{ position: "absolute", top: 60, right: 20, zIndex: 50 }}>
+        <View style={{ position: "absolute", top: waitingParentTask ? 90 : 60, right: 20, zIndex: 50 }}>
           <MascotOrb mood="locked" size={40} />
         </View>
 

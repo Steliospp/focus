@@ -124,8 +124,23 @@ export function ReflectScreen() {
   const finishedEarly = task?.finishedEarly ?? false;
   const finishedLate = task?.status === "late";
   const isHonor = task?.proofType === "honor";
+  const isDoer = task?.archetype === "doer";
+  const isHandler = task?.archetype === "handler";
 
   const mode = getReflectionMode(score, finishedEarly, finishedLate, isHonor);
+
+  // Handler tasks: skip reflection entirely, just mark complete
+  useEffect(() => {
+    if (isHandler) {
+      updateTask(taskId, {
+        status: "completed",
+        completedAt: new Date().toISOString(),
+      });
+      addFocusMinutes(task?.estimatedMinutes ?? 0);
+      setCurrentTask(null);
+      navigation.navigate("Tabs");
+    }
+  }, [isHandler]);
 
   // State for different flows
   const [honestyAnswer, setHonestyAnswer] = useState<HonestyReport | null>(null);
@@ -779,7 +794,14 @@ export function ReflectScreen() {
               {scoreAnimDone && reflectionStep === 0 && mode !== "honor" && (
                 <Animated.View style={{ opacity: continueOpacity, marginTop: 24 }}>
                   <TouchableOpacity
-                    onPress={() => setReflectionStep(1)}
+                    onPress={() => {
+                      // Doer tasks: skip reflection, go straight to done
+                      if (isDoer) {
+                        handleComplete();
+                      } else {
+                        setReflectionStep(1);
+                      }
+                    }}
                   >
                     <Text
                       style={{
@@ -789,7 +811,7 @@ export function ReflectScreen() {
                         textAlign: "center",
                       }}
                     >
-                      {"continue \u2192"}
+                      {isDoer ? "done \u2192" : "continue \u2192"}
                     </Text>
                   </TouchableOpacity>
                 </Animated.View>
