@@ -355,9 +355,10 @@ function SwipeableRow({
 
   return (
     <View style={{ marginHorizontal: Spacing.md, marginBottom: Spacing.sm, borderRadius: Radii.md, backgroundColor: Colors.background }}>
-      {/* Delete button — progressive reveal, hidden until first interaction */}
+      {/* Delete visual — progressive reveal, hidden until first interaction */}
       {hasInteracted && (
         <Animated.View
+          pointerEvents="none"
           style={{
             position: 'absolute',
             top: 0,
@@ -376,10 +377,18 @@ function SwipeableRow({
         </Animated.View>
       )}
 
-      {/* Tap target for delete — only when fully open */}
+      {/* Card content that slides left */}
+      <Animated.View
+        style={{ transform: [{ translateX: clampedTranslate }] }}
+        {...panResponder.panHandlers}
+      >
+        {children}
+      </Animated.View>
+
+      {/* Delete tap zone — only when fully open, sits on top of the exposed gap */}
       {isOpen && (
         <TouchableOpacity
-          activeOpacity={0.5}
+          activeOpacity={0.6}
           onPress={handleDelete}
           style={{
             position: 'absolute',
@@ -387,34 +396,8 @@ function SwipeableRow({
             bottom: 0,
             right: 0,
             width: DELETE_WIDTH,
+            zIndex: 100,
             borderRadius: Radii.md,
-          }}
-        />
-      )}
-
-      {/* Card content that slides left — pointerEvents box-none when open so delete zone receives taps */}
-      <Animated.View
-        style={{ transform: [{ translateX: clampedTranslate }] }}
-        pointerEvents={isOpen ? 'box-none' : 'auto'}
-        {...(isOpen ? {} : panResponder.panHandlers)}
-      >
-        {children}
-      </Animated.View>
-
-      {/* Card tap zone to close swipe — only covers the visible card area, not the delete zone */}
-      {isOpen && (
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => {
-            onSwipeCloseRef.current();
-            Animated.timing(translateX, { toValue: 0, duration: 200, useNativeDriver: false }).start();
-          }}
-          style={{
-            position: 'absolute',
-            top: 0,
-            bottom: 0,
-            left: 0,
-            right: DELETE_WIDTH,
           }}
         />
       )}
