@@ -15,7 +15,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Fonts, Spacing, Radii, Shadows } from '@/constants/theme';
@@ -392,25 +392,32 @@ function SwipeableRow({
         />
       )}
 
-      {/* Card content that slides left */}
+      {/* Card content that slides left — pointerEvents box-none when open so delete zone receives taps */}
       <Animated.View
         style={{ transform: [{ translateX: clampedTranslate }] }}
+        pointerEvents={isOpen ? 'box-none' : 'auto'}
         {...(isOpen ? {} : panResponder.panHandlers)}
       >
-        {isOpen ? (
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={() => {
-              onSwipeCloseRef.current();
-              Animated.timing(translateX, { toValue: 0, duration: 200, useNativeDriver: false }).start();
-            }}
-          >
-            {children}
-          </TouchableOpacity>
-        ) : (
-          children
-        )}
+        {children}
       </Animated.View>
+
+      {/* Card tap zone to close swipe — only covers the visible card area, not the delete zone */}
+      {isOpen && (
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => {
+            onSwipeCloseRef.current();
+            Animated.timing(translateX, { toValue: 0, duration: 200, useNativeDriver: false }).start();
+          }}
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            right: DELETE_WIDTH,
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -432,11 +439,13 @@ function CalendarPicker({
 }) {
   const [viewMonth, setViewMonth] = useState(selectedDate.getMonth());
   const [viewYear, setViewYear] = useState(selectedDate.getFullYear());
+  const [showYearPicker, setShowYearPicker] = useState(false);
 
   useEffect(() => {
     if (visible) {
       setViewMonth(selectedDate.getMonth());
       setViewYear(selectedDate.getFullYear());
+      setShowYearPicker(false);
     }
   }, [visible, selectedDate]);
 
@@ -448,6 +457,7 @@ function CalendarPicker({
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
   const prevMonth = () => {
+    if (viewYear === 2026 && viewMonth === 0) return;
     if (viewMonth === 0) {
       setViewMonth(11);
       setViewYear(viewYear - 1);
@@ -471,66 +481,95 @@ function CalendarPicker({
     <Modal visible={visible} transparent animationType="fade">
       <Pressable style={styles.calendarOverlay} onPress={onClose}>
         <View style={styles.calendarContainer} onStartShouldSetResponder={() => true}>
-          {/* Month nav */}
+          {/* Month/Year nav */}
           <View style={styles.calendarNav}>
             <Pressable onPress={prevMonth} hitSlop={12}>
               <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
             </Pressable>
-            <Text style={styles.calendarMonthLabel}>
-              {MONTH_NAMES[viewMonth]} {viewYear}
-            </Text>
+            <Pressable onPress={() => setShowYearPicker(!showYearPicker)}>
+              <Text style={styles.calendarMonthLabel}>
+                {MONTH_NAMES[viewMonth]} {viewYear} <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} />
+              </Text>
+            </Pressable>
             <Pressable onPress={nextMonth} hitSlop={12}>
               <Ionicons name="chevron-forward" size={22} color={Colors.textPrimary} />
             </Pressable>
           </View>
 
-          {/* Day-of-week headers */}
-          <View style={styles.calendarWeekRow}>
-            {DAY_NAMES.map((d) => (
-              <Text key={d} style={styles.calendarWeekDay}>{d}</Text>
-            ))}
-          </View>
-
-          {/* Day grid */}
-          <View style={styles.calendarGrid}>
-            {cells.map((day, i) => {
-              if (day === null) {
-                return <View key={`empty-${i}`} style={styles.calendarCell} />;
-              }
-              const cellDate = new Date(viewYear, viewMonth, day);
-              const isSelected = isSameDay(cellDate, selectedDate);
-              const isToday = isSameDay(cellDate, today);
-              const isFuture = cellDate > today;
-
-              return (
-                <Pressable
-                  key={day}
-                  style={[
-                    styles.calendarCell,
-                    isSelected && styles.calendarCellSelected,
-                  ]}
-                  onPress={() => {
-                    if (!isFuture) {
-                      onSelect(cellDate);
-                      onClose();
-                    }
-                  }}
-                  disabled={isFuture}
-                >
-                  <Text
-                    style={[
-                      styles.calendarCellText,
-                      isSelected && styles.calendarCellTextSelected,
-                      isToday && !isSelected && styles.calendarCellTextToday,
-                      isFuture && { opacity: 0.3 },
-                    ]}
+          {showYearPicker ? (
+            <View style={styles.yearPickerContainer}>
+              <ScrollView
+                style={styles.yearPickerScroll}
+                contentContainerStyle={styles.yearPickerContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {Array.from({ length: today.getFullYear() - 2026 + 1 }, (_, i) => 2026 + i).map((year) => (
+                  <Pressable
+                    key={year}
+                    style={[styles.yearItem, year === viewYear && styles.yearItemSelected]}
+                    onPress={() => {
+                      setViewYear(year);
+                      setShowYearPicker(false);
+                    }}
                   >
-                    {day}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+                    <Text style={[styles.yearItemText, year === viewYear && styles.yearItemTextSelected]}>
+                      {year}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : (
+            <>
+              {/* Day-of-week headers */}
+              <View style={styles.calendarWeekRow}>
+                {DAY_NAMES.map((d) => (
+                  <Text key={d} style={styles.calendarWeekDay}>{d}</Text>
+                ))}
+              </View>
+
+              {/* Day grid */}
+              <View style={styles.calendarGrid}>
+                {cells.map((day, i) => {
+                  if (day === null) {
+                    return <View key={`empty-${i}`} style={styles.calendarCell} />;
+                  }
+                  const cellDate = new Date(viewYear, viewMonth, day);
+                  const isSelected = isSameDay(cellDate, selectedDate);
+                  const isToday = isSameDay(cellDate, today);
+                  const isFuture = cellDate > today;
+
+                  return (
+                    <Pressable
+                      key={day}
+                      style={[
+                        styles.calendarCell,
+                        isSelected && styles.calendarCellSelected,
+                      ]}
+                      onPress={() => {
+                        if (!isFuture) {
+                          onSelect(cellDate);
+                          onClose();
+                        }
+                      }}
+                      disabled={isFuture}
+                    >
+                      <Text
+                        style={[
+                          styles.calendarCellText,
+                          isSelected && styles.calendarCellTextSelected,
+                          isToday && !isSelected && styles.calendarCellTextToday,
+                          isFuture && { opacity: 0.3 },
+                        ]}
+                      >
+                        {day}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          )}
         </View>
       </Pressable>
     </Modal>
@@ -540,6 +579,7 @@ function CalendarPicker({
 export default function JournalScreen() {
   const { entries, loading, refreshEntries, deleteEntry } = useJournal();
   const router = useRouter();
+  const params = useLocalSearchParams<{ expandEntryId?: string }>();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [swipedOpenId, setSwipedOpenId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -552,6 +592,16 @@ export default function JournalScreen() {
       refreshEntries();
     }, [refreshEntries]),
   );
+
+  // Auto-expand a newly created entry when navigated from home screen
+  useEffect(() => {
+    if (params.expandEntryId) {
+      setExpandedId(params.expandEntryId);
+      setSelectedDate(new Date()); // ensure today is selected
+      // Clear the param so it doesn't re-expand on future focus
+      router.setParams({ expandEntryId: undefined as any });
+    }
+  }, [params.expandEntryId]);
 
   const handleCardPress = useCallback((id: string) => {
     if (swipedOpenId) {
@@ -776,6 +826,33 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sansMedium,
     fontSize: 17,
     color: Colors.textPrimary,
+  },
+  yearPickerContainer: {
+    paddingVertical: Spacing.sm,
+  },
+  yearPickerScroll: {
+    maxHeight: 250,
+  },
+  yearPickerContent: {
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  yearItem: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: Radii.md,
+  },
+  yearItemSelected: {
+    backgroundColor: Colors.primary,
+  },
+  yearItemText: {
+    fontFamily: Fonts.sansRegular,
+    fontSize: 18,
+    color: Colors.textPrimary,
+  },
+  yearItemTextSelected: {
+    color: '#FFFFFF',
+    fontFamily: Fonts.sansMedium,
   },
   calendarWeekRow: {
     flexDirection: 'row',

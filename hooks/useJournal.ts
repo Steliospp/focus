@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import {
   getEntries,
@@ -101,8 +102,13 @@ export function useJournal() {
 
   const deleteEntry = useCallback(async (id: string) => {
     // Remove from UI immediately
-    setEntries((prev) => prev.filter((e) => e.id !== id));
-    // Then remove from storage (don't block UI on this)
+    setEntries((prev) => {
+      const updated = prev.filter((e) => e.id !== id);
+      // Persist the filtered list directly so it survives tab switches
+      AsyncStorage.setItem('lym_entries', JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+    // Also run the full storage delete (handles audio file cleanup)
     try {
       await deleteStorageEntry(id);
     } catch (error) {
