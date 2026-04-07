@@ -25,7 +25,7 @@ function formatDate(date: Date): string {
 export default function HomeScreen() {
   const router = useRouter();
   const { isRecording, duration, meterLevel, startRecording, stopRecording } = useRecording();
-  const { streak, hasLoggedToday, refreshStreak } = useStreak();
+  const { streak, hasLoggedToday, streakActive, missedYesterday, refreshStreak } = useStreak();
   const { saveNewEntry } = useJournal();
   const { hasMicPermission, requestMicPermission } = usePermissions();
 
@@ -168,15 +168,21 @@ export default function HomeScreen() {
 
         {/* Bottom: Streak + nudge status */}
         <View style={styles.footer}>
-          {streak.currentStreak > 0 ? (
+          {missedYesterday ? (
+            <Text style={[styles.streakText, { color: Colors.textMuted }]}>
+              {'\uD83D\uDCA4'} start a new streak
+            </Text>
+          ) : streak.currentStreak === 1 && hasLoggedToday ? (
+            <Text style={styles.streakText}>
+              {'\uD83D\uDD25'} 1 day streak — keep it going
+            </Text>
+          ) : streak.currentStreak > 0 ? (
             <Text style={styles.streakText}>
               {'\uD83D\uDD25'} {streak.currentStreak} day streak
             </Text>
-          ) : (
-            <Text style={styles.streakText}>Start your streak today</Text>
-          )}
+          ) : null}
           {hasLoggedToday ? (
-            <Text style={[styles.nudgeText, { color: Colors.success }]}>✓ today's log saved</Text>
+            <Text style={[styles.nudgeText, { color: Colors.success }]}>{'\u2713'} today's log saved</Text>
           ) : (
             <Text style={[styles.nudgeText, { color: Colors.primary }]}>1 log remaining today</Text>
           )}

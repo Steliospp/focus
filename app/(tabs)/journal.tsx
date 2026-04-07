@@ -20,7 +20,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Fonts, Spacing, Radii, Shadows } from '@/constants/theme';
 import { useJournal } from '@/hooks/useJournal';
+import { useStreak } from '@/hooks/useStreak';
 import { JournalEntry } from '@/services/storage';
+import * as Clipboard from 'expo-clipboard';
 import JournalCard from '@/components/JournalCard';
 import ShimmerCard from '@/components/ShimmerCard';
 
@@ -130,10 +132,9 @@ function ExpandedContent({ entry }: { entry: JournalEntry }) {
   const handleCopy = async () => {
     if (textContent) {
       try {
-        const { setStringAsync } = require('expo-clipboard');
-        await setStringAsync(textContent);
+        await Clipboard.setStringAsync(textContent);
       } catch {
-        // no-op if clipboard unavailable
+        // clipboard unavailable (e.g. Expo Go)
       }
       setCopied(true);
       setTimeout(() => setCopied(false), 3000);
@@ -414,11 +415,13 @@ function CalendarPicker({
   selectedDate,
   onSelect,
   onClose,
+  loggedDates,
 }: {
   visible: boolean;
   selectedDate: Date;
   onSelect: (date: Date) => void;
   onClose: () => void;
+  loggedDates?: Set<string>;
 }) {
   const [viewMonth, setViewMonth] = useState(selectedDate.getMonth());
   const [viewYear, setViewYear] = useState(selectedDate.getFullYear());
@@ -521,6 +524,8 @@ function CalendarPicker({
                   const isSelected = isSameDay(cellDate, selectedDate);
                   const isToday = isSameDay(cellDate, today);
                   const isFuture = cellDate > today;
+                  const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                  const hasLog = loggedDates?.has(dateStr) ?? false;
 
                   return (
                     <Pressable
@@ -547,6 +552,9 @@ function CalendarPicker({
                       >
                         {day}
                       </Text>
+                      {hasLog && !isSelected && (
+                        <View style={styles.calendarLogDot} />
+                      )}
                     </Pressable>
                   );
                 })}
@@ -561,6 +569,8 @@ function CalendarPicker({
 
 export default function JournalScreen() {
   const { entries, loading, refreshEntries, deleteEntry } = useJournal();
+  const { getLoggedDatesSet, refreshStreak } = useStreak();
+  const loggedDatesSet = useMemo(() => getLoggedDatesSet(), [getLoggedDatesSet]);
   const router = useRouter();
   const params = useLocalSearchParams<{ expandEntryId?: string }>();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -573,7 +583,8 @@ export default function JournalScreen() {
     useCallback(() => {
       setSwipedOpenId(null);
       refreshEntries();
-    }, [refreshEntries]),
+      refreshStreak();
+    }, [refreshEntries, refreshStreak]),
   );
 
   // Auto-expand a newly created entry when navigated from home screen
@@ -670,6 +681,8 @@ export default function JournalScreen() {
           {dayStrip.map((date, i) => {
             const isActive = isSameDay(date, selectedDate);
             const isToday = isSameDay(date, today);
+            const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            const hasLog = loggedDatesSet.has(dateStr);
             return (
               <Pressable
                 key={i}
@@ -688,6 +701,9 @@ export default function JournalScreen() {
                 >
                   {date.getDate()}
                 </Text>
+                {hasLog && !isActive && (
+                  <View style={styles.dayStripDot} />
+                )}
               </Pressable>
             );
           })}
@@ -700,6 +716,7 @@ export default function JournalScreen() {
         selectedDate={selectedDate}
         onSelect={(d) => setSelectedDate(d)}
         onClose={() => setCalendarOpen(false)}
+        loggedDates={getLoggedDatesSet()}
       />
 
       {/* List */}
@@ -779,6 +796,15 @@ const styles = StyleSheet.create({
   },
   dayCircleTextToday: {
     color: Colors.primary,
+  },
+  dayStripDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: Colors.primary,
+    marginTop: 2,
+    position: 'absolute',
+    bottom: 3,
   },
   // Calendar modal
   calendarOverlay: {
@@ -876,6 +902,13 @@ const styles = StyleSheet.create({
   calendarCellTextToday: {
     color: Colors.primary,
     fontFamily: Fonts.sansMedium,
+  },
+  calendarLogDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: Colors.primary,
+    marginTop: 2,
   },
   noEntriesContainer: {
     flex: 1,

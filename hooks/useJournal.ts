@@ -5,9 +5,9 @@ import {
   getEntries,
   saveEntry,
   deleteEntry as deleteStorageEntry,
-  updateStreak,
   JournalEntry,
 } from '@/services/storage';
+import { updateStreak } from '@/hooks/useStreak';
 import { transcribeAudio } from '@/services/transcription';
 import { generateSummary } from '@/services/ai';
 
